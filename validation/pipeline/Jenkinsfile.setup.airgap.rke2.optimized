@@ -1,0 +1,1103 @@
+#!/usr/bin/env groovy
+
+/**
+ * Optimized Airgap RKE2 Setup Jenkinsfile
+ * 
+ * This pipeline is optimized for performance and maintainability by:
+ * 1. Using shared Groovy helper library (airgapPipeline.groovy)
+ * 2. Consolidating Ansible deployment stages into a single optimized script
+ * 3. Implementing bastion preparation as a separate stage
+ * 4. Reducing Docker container overhead
+ * 5. Improving error handling and recovery
+ */
+
+pipeline {
+    agent any
+
+    // Global pipeline options
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 4, unit: 'HOURS')
+        timestamps()
+        ansiColor('xterm')
+        skipStagesAfterUnstable()
+    }
+
+    parameters {
+        string(
+            name: 'RKE2_VERSION',
+            defaultValue: 'v1.28.8+rke2r1',
+            description: 'RKE2 version to deploy (e.g., v1.28.8+rke2r1)'
+        )
+        string(
+            name: 'RANCHER_VERSION',
+            defaultValue: 'v2.10-head',
+            description: 'Rancher version to deploy (e.g., v2.10-head, v2.11.0)'
+        )
+        text(
+            name: 'ANSIBLE_VARIABLES',
+            defaultValue: '',
+            description: 'Ansible variables in YAML format for group_vars/all.yml'
+        )
+        string(
+            name: 'RANCHER_TEST_REPO_URL',
+            defaultValue: 'https://github.com/rancher/tests',
+            description: 'URL of rancher/tests repository'
+        )
+        string(
+            name: 'RANCHER_TEST_REPO_BRANCH',
+            defaultValue: 'main',
+            description: 'Branch of rancher/tests repository'
+        )
+        string(
+            name: 'QA_INFRA_REPO_URL',
+            defaultValue: 'https://github.com/rancher/qa-infra-automation',
+            description: 'URL of qa-infra-automation repository'
+        )
+        string(
+            name: 'QA_INFRA_REPO_BRANCH',
+            defaultValue: 'main',
+            description: 'Branch of qa-infra-automation repository'
+        )
+        string(
+            name: 'TERRAFORM_CONFIG',
+            defaultValue: '',
+            description: 'Terraform configuration for infrastructure deployment'
+        )
+        booleanParam(
+            name: 'DESTROY_ON_FAILURE',
+            defaultValue: true,
+            description: 'Destroy infrastructure on pipeline failure'
+        )
+        string(
+            name: 'HOSTNAME_PREFIX',
+            defaultValue: 'ansible-airgap',
+            description: 'Prefix for hostnames'
+        )
+        string(
+            name: 'RANCHER_HOSTNAME',
+            defaultValue: '',
+            description: 'Rancher hostname (if empty, will use bastion public DNS)'
+        )
+        string(
+            name: 'PRIVATE_REGISTRY_URL',
+            defaultValue: '',
+            description: 'Private registry URL (optional)'
+        )
+        string(
+            name: 'PRIVATE_REGISTRY_USERNAME',
+            defaultValue: '',
+            description: 'Private registry username (optional)'
+        )
+        password(
+            name: 'PRIVATE_REGISTRY_PASSWORD',
+            defaultValue: '',
+            description: 'Private registry password (optional)'
+        )
+        choice(
+            name: 'DEPLOYMENT_MODE',
+            choices: ['full', 'infra-only', 'ansible-only'],
+            description: 'Deployment mode: full (infra + ansible), infra-only (terraform only), ansible-only (skip terraform)'
+        )
+        choice(
+            name: 'ANSIBLE_STAGES',
+            choices: ['all', 'ssh-setup,rke2-deploy,kubectl-setup,rancher-deploy', 'ssh-setup,rke2-deploy,kubectl-setup', 'rke2-deploy,rancher-deploy'],
+            description: 'Ansible stages to run (when deployment mode includes ansible)'
+        )
+    }
+
+    environment {
+        // Load shared library
+        AIRGAP_PIPELINE = load 'validation/pipeline/vars/airgapPipeline.groovy'
+
+        // Default configuration
+        TF_WORKSPACE = "jenkins_airgap_ansible_workspace_${env.BUILD_NUMBER}"
+        QA_INFRA_WORK_PATH = '/root/go/src/github.com/rancher/qa-infra-automation'
+        ROOT_PATH = '/root/go/src/github.com/rancher/tests/'
+        
+        // Timeouts (in minutes)
+        TERRAFORM_TIMEOUT = '30'
+        ANSIBLE_TIMEOUT = '45'
+        
+        // Configuration files
+        TERRAFORM_VARS_FILENAME = 'cluster.tfvars'
+        TERRAFORM_BACKEND_VARS_FILENAME = 'backend.tfvars'
+        ANSIBLE_VARS_FILENAME = 'vars.yaml'
+        ENV_FILE = '.env'
+        
+        // Computed values
+        JOB_SHORT_NAME = "${AIRGAP_PIPELINE.getShortJobName()}"
+        BUILD_CONTAINER_NAME = "${JOB_SHORT_NAME}${BUILD_NUMBER}"
+        IMAGE_NAME = "rancher-airgap-${JOB_SHORT_NAME}${BUILD_NUMBER}"
+        VALIDATION_VOLUME = "AnsibleAirgapSharedVolume-${JOB_SHORT_NAME}${BUILD_NUMBER}"
+        
+        // S3 configuration
+        S3_BUCKET_NAME = 'jenkins-terraform-state-storage'
+        S3_REGION = 'us-east-2'
+        S3_KEY_PREFIX = "jenkins-airgap-rke2/terraform.tfstate"
+    }
+
+    stages {
+        stage('Initialize Pipeline') {
+            steps {
+                script {
+                    AIRGAP_PIPELINE.logInfo('Initializing optimized pipeline')
+                    
+                    // Validate parameters
+                    validateParameters()
+                    
+                    // Clean workspace
+                    deleteDir()
+                    
+                    // Setup dynamic environment
+                    setupDynamicEnvironment()
+                    
+                    AIRGAP_PIPELINE.logInfo("Pipeline initialized successfully")
+                    AIRGAP_PIPELINE.logInfo("Build container: ${env.BUILD_CONTAINER_NAME}")
+                    AIRGAP_PIPELINE.logInfo("Docker image: ${env.IMAGE_NAME}")
+                    AIRGAP_PIPELINE.logInfo("Volume: ${env.VALIDATION_VOLUME}")
+                    AIRGAP_PIPELINE.logInfo("Deployment mode: ${params.DEPLOYMENT_MODE}")
+                    AIRGAP_PIPELINE.logInfo("Ansible stages: ${params.ANSIBLE_STAGES}")
+                }
+            }
+        }
+
+        stage('Checkout Repositories') {
+            steps {
+                script {
+                    AIRGAP_PIPELINE.logInfo('Checking out source repositories')
+
+                    // Checkout Rancher Tests Repository
+                    dir('./tests') {
+                        AIRGAP_PIPELINE.logInfo("Cloning rancher tests repository from ${params.RANCHER_TEST_REPO_URL}")
+                        checkout([
+                            $class: 'GitSCM',
+                            branches: [[name: "*/${params.RANCHER_TEST_REPO_BRANCH}"]],
+                            extensions: [
+                                [$class: 'CleanCheckout'],
+                                [$class: 'CloneOption', depth: 1, shallow: true]
+                            ],
+                            userRemoteConfigs: [[
+                                url: params.RANCHER_TEST_REPO_URL,
+                            ]]
+                        ])
+                    }
+
+                    // Checkout QA Infrastructure Repository
+                    dir('./qa-infra-automation') {
+                        AIRGAP_PIPELINE.logInfo("Cloning qa-infra-automation repository from ${params.QA_INFRA_REPO_URL}")
+                        checkout([
+                            $class: 'GitSCM',
+                            branches: [[name: "*/${params.QA_INFRA_REPO_BRANCH}"]],
+                            extensions: [
+                                [$class: 'CleanCheckout'],
+                                [$class: 'CloneOption', depth: 1, shallow: true]
+                            ],
+                            userRemoteConfigs: [[
+                                url: params.QA_INFRA_REPO_URL,
+                            ]]
+                        ])
+                    }
+
+                    AIRGAP_PIPELINE.logInfo('Repository checkout completed successfully')
+                }
+            }
+        }
+
+        stage('Configure Environment') {
+            steps {
+                script {
+                    AIRGAP_PIPELINE.logInfo('Configuring deployment environment')
+
+                    // Read Ansible variables from textbox parameter
+                    readAnsibleVariablesFile()
+
+                    // Configure credentials and environment files
+                    withCredentials(AIRGAP_PIPELINE.getCommonCredentialsList()) {
+                        // Generate environment file
+                        generateEnvironmentFile()
+
+                        // Setup SSH keys securely
+                        setupSSHKeys()
+
+                        // Build Docker image with proper tagging
+                        AIRGAP_PIPELINE.buildDockerImage(env.IMAGE_NAME)
+
+                        // Create shared volume
+                        AIRGAP_PIPELINE.createSharedVolume(env.VALIDATION_VOLUME)
+                    }
+
+                    AIRGAP_PIPELINE.logInfo('Environment configuration completed')
+                }
+            }
+        }
+
+        stage('Infrastructure Deployment') {
+            when {
+                expression { params.DEPLOYMENT_MODE == 'full' || params.DEPLOYMENT_MODE == 'infra-only' }
+            }
+            steps {
+                script {
+                    AIRGAP_PIPELINE.logInfo('Deploying infrastructure with OpenTofu')
+
+                    // Configuration validation
+                    def requiredInfraVars = [
+                        'QA_INFRA_WORK_PATH',
+                        'TF_WORKSPACE',
+                        'TERRAFORM_VARS_FILENAME',
+                        'TERRAFORM_BACKEND_VARS_FILENAME',
+                        'TERRAFORM_TIMEOUT'
+                    ]
+                    AIRGAP_PIPELINE.validateRequiredVariables(requiredInfraVars, env)
+
+                    // Enhanced timeout with reasonable defaults
+                    def timeoutMinutes = env.TERRAFORM_TIMEOUT ?
+                        Integer.parseInt(env.TERRAFORM_TIMEOUT) : 30
+
+                    timeout(time: timeoutMinutes, unit: 'MINUTES') {
+                        try {
+                            // Generate Tofu config
+                            generateTofuConfiguration()
+
+                            // Upload cluster.tfvars to S3 immediately after generation
+                            uploadClusterTfvarsToS3()
+
+                            // Initialize OpenTofu
+                            def initScript = '''
+                                #!/bin/bash
+                                set -e
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common-infra.sh
+                                init_infra_environment
+                                execute_terraform_operation init
+                            '''
+                            AIRGAP_PIPELINE.executeScriptInContainer(
+                                env.IMAGE_NAME,
+                                env.BUILD_CONTAINER_NAME,
+                                env.VALIDATION_VOLUME,
+                                initScript,
+                                [:],
+                                env.ENV_FILE
+                            )
+
+                            // Manage workspace
+                            def workspaceScript = '''
+                                #!/bin/bash
+                                set -e
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common-infra.sh
+                                init_infra_environment
+                                execute_terraform_operation workspace
+                            '''
+                            AIRGAP_PIPELINE.executeScriptInContainer(
+                                env.IMAGE_NAME,
+                                env.BUILD_CONTAINER_NAME,
+                                env.VALIDATION_VOLUME,
+                                workspaceScript,
+                                [:],
+                                env.ENV_FILE
+                            )
+
+                            // Plan infrastructure changes
+                            def planScript = '''
+                                #!/bin/bash
+                                set -e
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common-infra.sh
+                                init_infra_environment
+                                execute_terraform_operation plan
+                            '''
+                            AIRGAP_PIPELINE.executeScriptInContainer(
+                                env.IMAGE_NAME,
+                                env.BUILD_CONTAINER_NAME,
+                                env.VALIDATION_VOLUME,
+                                planScript,
+                                [:],
+                                env.ENV_FILE
+                            )
+
+                            // Apply infrastructure
+                            def applyScript = '''
+                                #!/bin/bash
+                                set -e
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common-infra.sh
+                                init_infra_environment
+                                execute_terraform_operation apply
+                            '''
+                            AIRGAP_PIPELINE.executeScriptInContainer(
+                                env.IMAGE_NAME,
+                                env.BUILD_CONTAINER_NAME,
+                                env.VALIDATION_VOLUME,
+                                applyScript,
+                                [:],
+                                env.ENV_FILE
+                            )
+
+                            AIRGAP_PIPELINE.logInfo('Infrastructure deployment completed successfully')
+                        } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+                            AIRGAP_PIPELINE.logError("Infrastructure deployment timed out after ${timeoutMinutes} minutes")
+                            handleTimeoutFailure()
+                        } catch (Exception e) {
+                            AIRGAP_PIPELINE.logError("Infrastructure deployment failed: ${e.message}")
+                            handleDeploymentFailure()
+                        }
+                    }
+                }
+            }
+            post {
+                success {
+                    script {
+                        // Extract artifacts from Docker volume
+                        extractArtifactsFromDockerVolume()
+                    }
+                }
+                failure {
+                    script {
+                        AIRGAP_PIPELINE.logError('Infrastructure deployment failed')
+                        archiveInfrastructureFailureArtifacts()
+                    }
+                }
+            }
+        }
+
+        stage('Bastion Preparation') {
+            when {
+                expression { params.DEPLOYMENT_MODE == 'full' || params.DEPLOYMENT_MODE == 'ansible-only' }
+            }
+            steps {
+                script {
+                    AIRGAP_PIPELINE.logInfo('Preparing bastion host for Ansible deployment')
+
+                    // Configuration validation
+                    def requiredBastionVars = [
+                        'QA_INFRA_WORK_PATH',
+                        'ANSIBLE_VARS_FILENAME',
+                        'ANSIBLE_TIMEOUT'
+                    ]
+                    AIRGAP_PIPELINE.validateRequiredVariables(requiredBastionVars, env)
+
+                    // Enhanced timeout with reasonable defaults
+                    def timeoutMinutes = env.ANSIBLE_TIMEOUT ?
+                        Integer.parseInt(env.ANSIBLE_TIMEOUT) : 45
+
+                    timeout(time: timeoutMinutes, unit: 'MINUTES') {
+                        try {
+                            // Generate Ansible group_vars
+                            def groupVarsScript = '''
+                                #!/bin/bash
+                                set -e
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common.sh
+                                init_common_environment
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/ansible_generate_group_vars.sh
+                            '''
+                            AIRGAP_PIPELINE.executeScriptInContainer(
+                                env.IMAGE_NAME,
+                                env.BUILD_CONTAINER_NAME,
+                                env.VALIDATION_VOLUME,
+                                groupVarsScript,
+                                [
+                                    'ANSIBLE_VARIABLES': env.ANSIBLE_VARIABLES,
+                                    'RKE2_VERSION': env.RKE2_VERSION,
+                                    'RANCHER_VERSION': env.RANCHER_VERSION,
+                                    'HOSTNAME_PREFIX': env.HOSTNAME_PREFIX,
+                                    'PRIVATE_REGISTRY_URL': env.PRIVATE_REGISTRY_URL,
+                                    'PRIVATE_REGISTRY_USERNAME': env.PRIVATE_REGISTRY_USERNAME,
+                                    'PRIVATE_REGISTRY_PASSWORD': env.PRIVATE_REGISTRY_PASSWORD,
+                                    'RANCHER_HOSTNAME': env.RANCHER_HOSTNAME
+                                ],
+                                env.ENV_FILE
+                            )
+
+                            // Prepare bastion environment
+                            def bastionScript = '''
+                                #!/bin/bash
+                                set -e
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common.sh
+                                init_common_environment
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/prepare_bastion.sh
+                            '''
+                            AIRGAP_PIPELINE.executeScriptInContainer(
+                                env.IMAGE_NAME,
+                                env.BUILD_CONTAINER_NAME,
+                                env.VALIDATION_VOLUME,
+                                bastionScript,
+                                [:],
+                                env.ENV_FILE
+                            )
+
+                            AIRGAP_PIPELINE.logInfo('Bastion preparation completed successfully')
+                        } catch (Exception e) {
+                            AIRGAP_PIPELINE.logError("Bastion preparation failed: ${e.message}")
+                            throw e
+                        }
+                    }
+                }
+            }
+            post {
+                failure {
+                    script {
+                        AIRGAP_PIPELINE.logError('Bastion preparation failed')
+                        archiveBastionFailureArtifacts()
+                    }
+                }
+            }
+        }
+
+        stage('Deploy with Ansible') {
+            when {
+                expression { params.DEPLOYMENT_MODE == 'full' || params.DEPLOYMENT_MODE == 'ansible-only' }
+            }
+            steps {
+                script {
+                    AIRGAP_PIPELINE.logInfo('Deploying RKE2 cluster and Rancher with optimized Ansible workflow')
+
+                    // Configuration validation
+                    def requiredAnsibleVars = [
+                        'QA_INFRA_WORK_PATH',
+                        'ANSIBLE_VARS_FILENAME',
+                        'ANSIBLE_TIMEOUT'
+                    ]
+                    AIRGAP_PIPELINE.validateRequiredVariables(requiredAnsibleVars, env)
+
+                    // Parse Ansible stages
+                    def ansibleStages = params.ANSIBLE_STAGES
+                    if (ansibleStages == 'all') {
+                        ansibleStages = 'ssh-setup,rke2-deploy,kubectl-setup,rancher-deploy'
+                    }
+
+                    // Enhanced timeout with reasonable defaults
+                    def timeoutMinutes = env.ANSIBLE_TIMEOUT ?
+                        Integer.parseInt(env.ANSIBLE_TIMEOUT) : 45
+
+                    timeout(time: timeoutMinutes, unit: 'MINUTES') {
+                        try {
+                            // Run optimized Ansible deployment
+                            def deployScript = """
+                                #!/bin/bash
+                                set -e
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common.sh
+                                init_common_environment
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/ansible_deploy_optimized.sh
+                                execute_deployment_mode deploy-custom ${ansibleStages}
+                            """
+                            AIRGAP_PIPELINE.executeScriptInContainer(
+                                env.IMAGE_NAME,
+                                env.BUILD_CONTAINER_NAME,
+                                env.VALIDATION_VOLUME,
+                                deployScript,
+                                [
+                                    'ANSIBLE_VARIABLES': env.ANSIBLE_VARIABLES,
+                                    'RKE2_VERSION': env.RKE2_VERSION,
+                                    'RANCHER_VERSION': env.RANCHER_VERSION,
+                                    'CONTINUE_ON_FAILURE': 'true'
+                                ],
+                                env.ENV_FILE
+                            )
+
+                            AIRGAP_PIPELINE.logInfo('Optimized Ansible deployment completed successfully')
+                        } catch (Exception e) {
+                            AIRGAP_PIPELINE.logError("Optimized Ansible deployment failed: ${e.message}")
+                            handleAnsibleDeploymentFailure()
+                        }
+                    }
+                }
+            }
+            post {
+                success {
+                    script {
+                        AIRGAP_PIPELINE.logInfo('Optimized Ansible deployment succeeded')
+                        archiveAnsibleDeploymentArtifacts()
+                    }
+                }
+                failure {
+                    script {
+                        AIRGAP_PIPELINE.logError('Optimized Ansible deployment failed')
+                        archiveAnsibleFailureArtifacts()
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                AIRGAP_PIPELINE.logInfo('Starting post-build cleanup')
+
+                // Archive important artifacts (excluding sensitive tfstate and tfvars files)
+                archiveBuildArtifacts([
+                    'kubeconfig.yaml',
+                    'infrastructure-outputs.json',
+                    'ansible-inventory.yml',
+                    'deployment_state.json',
+                    'deployment_summary.json'
+                ])
+
+                // Always cleanup containers and volumes
+                try {
+                    node {
+                        AIRGAP_PIPELINE.cleanupContainersAndVolumes(
+                            env.BUILD_CONTAINER_NAME,
+                            env.IMAGE_NAME,
+                            env.VALIDATION_VOLUME
+                        )
+                    }
+                } catch (Exception e) {
+                    AIRGAP_PIPELINE.logError("Node context not available for cleanup: ${e.message}")
+                    try {
+                        AIRGAP_PIPELINE.cleanupContainersAndVolumes(
+                            env.BUILD_CONTAINER_NAME,
+                            env.IMAGE_NAME,
+                            env.VALIDATION_VOLUME
+                        )
+                    } catch (Exception cleanupException) {
+                        AIRGAP_PIPELINE.logError("Cleanup failed: ${cleanupException.message}")
+                    }
+                }
+            }
+        }
+
+        success {
+            script {
+                AIRGAP_PIPELINE.logInfo('Optimized pipeline completed successfully')
+                AIRGAP_PIPELINE.sendSlackNotification([
+                    color: 'good',
+                    message: "✅ Optimized Ansible Airgap setup succeeded for ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+                ])
+            }
+        }
+
+        failure {
+            script {
+                AIRGAP_PIPELINE.logError('Optimized pipeline failed')
+                AIRGAP_PIPELINE.sendSlackNotification([
+                    color: 'danger',
+                    message: "❌ Optimized Ansible Airgap setup failed for ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+                ])
+            }
+        }
+
+        unstable {
+            script {
+                AIRGAP_PIPELINE.logWarning('Optimized pipeline completed with warnings')
+                AIRGAP_PIPELINE.sendSlackNotification([
+                    color: 'warning',
+                    message: "⚠️ Optimized Ansible Airgap setup completed with warnings for ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+                ])
+            }
+        }
+    }
+}
+
+// ========================================
+// HELPER FUNCTIONS
+// ========================================
+
+def validateParameters() {
+    AIRGAP_PIPELINE.logInfo('Validating pipeline parameters')
+
+    def validationErrors = []
+
+    // Required parameters validation
+    if (!params.RKE2_VERSION?.trim()) {
+        validationErrors.add('RKE2_VERSION parameter is required')
+    }
+    if (!params.RANCHER_VERSION?.trim()) {
+        validationErrors.add('RANCHER_VERSION parameter is required')
+    }
+    if (!params.RANCHER_TEST_REPO_URL?.trim()) {
+        validationErrors.add('RANCHER_TEST_REPO_URL parameter is required')
+    }
+    if (!params.QA_INFRA_REPO_URL?.trim()) {
+        validationErrors.add('QA_INFRA_REPO_URL parameter is required')
+    }
+
+    // Version format validation
+    if (params.RKE2_VERSION && !AIRGAP_PIPELINE.validateRKE2Version(params.RKE2_VERSION)) {
+        validationErrors.add("RKE2_VERSION '${params.RKE2_VERSION}' does not match expected format (e.g., v1.28.8+rke2r1)")
+    }
+    if (params.RANCHER_VERSION && !AIRGAP_PIPELINE.validateRancherVersion(params.RANCHER_VERSION)) {
+        validationErrors.add("RANCHER_VERSION '${params.RANCHER_VERSION}' does not match expected format (e.g., v2.10-head, v2.11.0)")
+    }
+
+    // Deployment mode validation
+    def validModes = ['full', 'infra-only', 'ansible-only']
+    if (!validModes.contains(params.DEPLOYMENT_MODE)) {
+        validationErrors.add("DEPLOYMENT_MODE '${params.DEPLOYMENT_MODE}' is not valid. Valid options: ${validModes.join(', ')}")
+    }
+
+    if (validationErrors) {
+        def errorMsg = 'Parameter validation failed:\n' + validationErrors.join('\n- ')
+        AIRGAP_PIPELINE.logError(errorMsg)
+        error(errorMsg)
+    }
+
+    AIRGAP_PIPELINE.logInfo('All parameters validated successfully')
+}
+
+def setupDynamicEnvironment() {
+    env.RKE2_VERSION = params.RKE2_VERSION
+    env.RANCHER_VERSION = params.RANCHER_VERSION
+    env.TERRAFORM_VARS_FILENAME = 'cluster.tfvars'
+
+    AIRGAP_PIPELINE.logInfo('Dynamic environment configured')
+    AIRGAP_PIPELINE.logInfo("RKE2 Version: ${env.RKE2_VERSION}")
+    AIRGAP_PIPELINE.logInfo("Rancher Version: ${env.RANCHER_VERSION}")
+    AIRGAP_PIPELINE.logInfo("Terraform Vars Filename: ${env.TERRAFORM_VARS_FILENAME}")
+}
+
+def readAnsibleVariablesFile() {
+    AIRGAP_PIPELINE.logInfo('Reading Ansible variables from textbox parameter')
+
+    def ansibleVarsContent = ''
+
+    if (params.ANSIBLE_VARIABLES && params.ANSIBLE_VARIABLES.trim()) {
+        AIRGAP_PIPELINE.logInfo('Reading Ansible variables from textbox parameter')
+        ansibleVarsContent = params.ANSIBLE_VARIABLES.trim()
+        AIRGAP_PIPELINE.logInfo("Ansible variables content size: ${ansibleVarsContent.length()} bytes")
+    } else {
+        def errorMsg = 'ANSIBLE_VARIABLES parameter is required but was not provided'
+        AIRGAP_PIPELINE.logError(errorMsg)
+        error(errorMsg)
+    }
+
+    // Store in environment for passing to containers
+    env.ANSIBLE_VARIABLES = ansibleVarsContent
+    AIRGAP_PIPELINE.logInfo('Ansible variables loaded successfully')
+}
+
+def generateEnvironmentFile() {
+    // Use the shared library function
+    AIRGAP_PIPELINE.generateEnvironmentFile(env)
+}
+
+def setupSSHKeys() {
+    AIRGAP_PIPELINE.logInfo('Setting up SSH keys with secure handling')
+
+    // Get credentials within withCredentials block to ensure they're available
+    def awsSshPemKey = null
+    def awsSshKeyName = null
+
+    withCredentials([
+        string(credentialsId: 'AWS_SSH_PEM_KEY', variable: 'AWS_SSH_PEM_KEY'),
+        string(credentialsId: 'AWS_SSH_KEY_NAME', variable: 'AWS_SSH_KEY_NAME')
+    ]) {
+        awsSshPemKey = env.AWS_SSH_PEM_KEY
+        awsSshKeyName = env.AWS_SSH_KEY_NAME
+    }
+
+    if (awsSshPemKey && awsSshKeyName) {
+        try {
+            dir('./tests/.ssh') {
+                // Create secure directory with proper permissions
+                sh 'mkdir -p . && chmod 700 .'
+
+                def decodedKey = new String(awsSshPemKey.decodeBase64())
+
+                // Write key file securely
+                writeFile file: awsSshKeyName, text: decodedKey
+
+                // Set secure file permissions
+                sh "chmod 600 ${awsSshKeyName}"
+                sh 'chown $(whoami):$(whoami) ' + awsSshKeyName + ' 2>/dev/null || true'
+
+                // Verify key file security
+                def keyPermissions = sh(script: "ls -la ${awsSshKeyName}", returnStdout: true).trim()
+                AIRGAP_PIPELINE.logInfo("SSH key file permissions: ${keyPermissions}")
+
+                // Validate key format
+                def keyContent = sh(script: "head -1 ${awsSshKeyName}", returnStdout: true).trim()
+                if (!keyContent.startsWith('-----BEGIN') && !keyContent.startsWith('ssh-rsa') && !keyContent.startsWith('ssh-ed25519')) {
+                    AIRGAP_PIPELINE.logWarning("SSH key format validation warning - unexpected key format")
+                }
+            }
+
+            AIRGAP_PIPELINE.logInfo('SSH keys configured successfully')
+        } catch (Exception e) {
+            AIRGAP_PIPELINE.logError("SSH key setup failed: ${e.message}")
+            cleanupSSHKeys()
+            throw e
+        }
+    } else {
+        AIRGAP_PIPELINE.logWarning('SSH key configuration skipped - missing required environment variables')
+    }
+}
+
+def cleanupSSHKeys() {
+    AIRGAP_PIPELINE.logInfo('Cleaning up SSH keys securely')
+
+    try {
+        // Get credentials for key name
+        withCredentials([
+            string(credentialsId: 'AWS_SSH_KEY_NAME', variable: 'AWS_SSH_KEY_NAME')
+        ]) {
+            def awsSshKeyName = env.AWS_SSH_KEY_NAME
+
+            if (awsSshKeyName) {
+                def keyPath = "./tests/.ssh/${awsSshKeyName}"
+
+                if (fileExists(keyPath)) {
+                    // Securely shred the key file if shred is available
+                    try {
+                        sh "shred -vfz -n 3 ${keyPath} 2>/dev/null || rm -f ${keyPath}"
+                        AIRGAP_PIPELINE.logInfo("SSH key securely shredded: ${keyPath}")
+                    } catch (Exception shredException) {
+                        // Fallback to secure delete
+                        sh "rm -f ${keyPath}"
+                        AIRGAP_PIPELINE.logWarning("SSH key deleted (shred unavailable): ${keyPath}")
+                    }
+                }
+
+                // Clean up any temporary SSH files
+                sh 'rm -f ./tests/.ssh/known_hosts ./tests/.ssh/config 2>/dev/null || true'
+
+                // Ensure SSH directory is secure
+                if (fileExists('./tests/.ssh')) {
+                    sh 'chmod 700 ./tests/.ssh 2>/dev/null || true'
+                }
+            }
+        }
+    } catch (Exception e) {
+        AIRGAP_PIPELINE.logWarning("SSH key cleanup encountered issues: ${e.message}")
+    }
+
+    AIRGAP_PIPELINE.logInfo('SSH key cleanup completed')
+}
+
+def generateTofuConfiguration() {
+    AIRGAP_PIPELINE.logInfo('Generating Terraform configuration')
+
+    if (!env.TERRAFORM_CONFIG) {
+        error('TERRAFORM_CONFIG environment variable is not set')
+    }
+
+    // Ensure S3 backend parameters are set
+    if (!env.S3_BUCKET_NAME) { error('S3_BUCKET_NAME environment variable is not set') }
+    if (!env.S3_REGION) { error('S3_REGION environment variable is not set') }
+    if (!env.S3_KEY_PREFIX) { error('S3_KEY_PREFIX environment variable is not set') }
+
+    sh 'mkdir -p qa-infra-automation/tofu/aws/modules/airgap'
+
+    def terraformConfig = env.TERRAFORM_CONFIG
+
+    // Replace variables in config (similar to Jenkinsfile.recurring pattern)
+    terraformConfig = terraformConfig.replace('${AWS_SECRET_ACCESS_KEY}', env.AWS_SECRET_ACCESS_KEY ?: '')
+    terraformConfig = terraformConfig.replace('${AWS_ACCESS_KEY_ID}', env.AWS_ACCESS_KEY_ID ?: '')
+    terraformConfig = terraformConfig.replace('${AWS_REGION}', env.AWS_REGION ?: '')
+    terraformConfig = terraformConfig.replace('${AWS_IAM_PROFILE}', env.AWS_IAM_PROFILE ?: '')
+    terraformConfig = terraformConfig.replace('${AWS_VPC}', env.AWS_VPC ?: '')
+    terraformConfig = terraformConfig.replace('${AWS_SECURITY_GROUPS}', env.AWS_SECURITY_GROUPS ?: '')
+    terraformConfig = terraformConfig.replace('${HOSTNAME_PREFIX}', env.HOSTNAME_PREFIX ?: '')
+
+    // Write the configuration file
+    dir('./qa-infra-automation') {
+        dir('./tofu/aws/modules/airgap') {
+            writeFile file: env.TERRAFORM_VARS_FILENAME, text: terraformConfig
+            AIRGAP_PIPELINE.logInfo("Terraform configuration written to: ${env.TERRAFORM_VARS_FILENAME}")
+        }
+    }
+}
+
+def uploadClusterTfvarsToS3() {
+    AIRGAP_PIPELINE.logInfo('Uploading cluster.tfvars to S3')
+
+    // Validate required S3 variables
+    def requiredS3Vars = ['S3_BUCKET_NAME', 'S3_REGION', 'TF_WORKSPACE', 'TERRAFORM_VARS_FILENAME']
+    AIRGAP_PIPELINE.validateRequiredVariables(requiredS3Vars, env)
+
+    def uploadScript = """
+        #!/bin/bash
+        set -e
+        source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common-infra.sh
+        init_infra_environment
+        execute_terraform_operation upload-config
+    """
+
+    // Explicitly pass S3 variables as environment variables to the container
+    def s3EnvVars = [
+        'S3_BUCKET_NAME': env.S3_BUCKET_NAME,
+        'S3_REGION': env.S3_REGION,
+        'S3_KEY_PREFIX': env.S3_KEY_PREFIX,
+        'AWS_REGION': env.AWS_REGION
+    ]
+
+    try {
+        AIRGAP_PIPELINE.executeScriptInContainer(
+            env.IMAGE_NAME,
+            env.BUILD_CONTAINER_NAME,
+            env.VALIDATION_VOLUME,
+            uploadScript,
+            s3EnvVars,
+            env.ENV_FILE
+        )
+        AIRGAP_PIPELINE.logInfo('S3 upload script executed successfully')
+    } catch (Exception e) {
+        AIRGAP_PIPELINE.logError("S3 upload failed with exception: ${e.message}")
+        AIRGAP_PIPELINE.logWarning('Continuing build despite S3 upload failure')
+    }
+}
+
+def handleTimeoutFailure() {
+    AIRGAP_PIPELINE.logError("Infrastructure deployment timed out after ${env.TERRAFORM_TIMEOUT} minutes")
+    try {
+        archiveInfrastructureFailureArtifacts()
+        if (env.DESTROY_ON_FAILURE.toBoolean()) {
+            AIRGAP_PIPELINE.logInfo('DESTROY_ON_FAILURE is true - attempting infrastructure cleanup for timeout')
+            def cleanupScript = '''
+                #!/bin/bash
+                set -e
+                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common-infra.sh
+                init_infra_environment
+                execute_terraform_operation destroy
+            '''
+            AIRGAP_PIPELINE.executeScriptInContainer(
+                env.IMAGE_NAME,
+                env.BUILD_CONTAINER_NAME,
+                env.VALIDATION_VOLUME,
+                cleanupScript,
+                [:],
+                env.ENV_FILE
+            )
+            AIRGAP_PIPELINE.logInfo('Infrastructure cleanup attempted for timeout')
+        } else {
+            AIRGAP_PIPELINE.logWarning('DESTROY_ON_FAILURE is false - manual cleanup required for timeout')
+        }
+        AIRGAP_PIPELINE.cleanupContainersAndVolumes(
+            env.BUILD_CONTAINER_NAME,
+            env.IMAGE_NAME,
+            env.VALIDATION_VOLUME
+        )
+    } catch (cleanupException) {
+        AIRGAP_PIPELINE.logError("Cleanup during timeout handling failed: ${cleanupException.message}")
+    }
+    error("Pipeline timed out after ${env.TERRAFORM_TIMEOUT} minutes")
+}
+
+def handleDeploymentFailure() {
+    AIRGAP_PIPELINE.logError('Infrastructure setup failed')
+    try {
+        archiveInfrastructureFailureArtifacts()
+        if (env.DESTROY_ON_FAILURE.toBoolean()) {
+            AIRGAP_PIPELINE.logInfo('DESTROY_ON_FAILURE is true - attempting infrastructure cleanup')
+            def cleanupScript = '''
+                #!/bin/bash
+                set -e
+                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common-infra.sh
+                init_infra_environment
+                execute_terraform_operation destroy
+            '''
+            AIRGAP_PIPELINE.executeScriptInContainer(
+                env.IMAGE_NAME,
+                env.BUILD_CONTAINER_NAME,
+                env.VALIDATION_VOLUME,
+                cleanupScript,
+                [:],
+                env.ENV_FILE
+            )
+            AIRGAP_PIPELINE.logInfo('Infrastructure cleanup attempted')
+        } else {
+            AIRGAP_PIPELINE.logWarning('DESTROY_ON_FAILURE is false - manual cleanup required')
+        }
+        AIRGAP_PIPELINE.cleanupContainersAndVolumes(
+            env.BUILD_CONTAINER_NAME,
+            env.IMAGE_NAME,
+            env.VALIDATION_VOLUME
+        )
+    } catch (cleanupException) {
+        AIRGAP_PIPELINE.logError("Cleanup during deployment failure handling failed: ${cleanupException.message}")
+    }
+    throw new Exception('Infrastructure deployment failed')
+}
+
+def handleAnsibleDeploymentFailure() {
+    AIRGAP_PIPELINE.logError('Ansible deployment failed - initiating cleanup')
+    try {
+        archiveAnsibleFailureArtifacts()
+        if (env.DESTROY_ON_FAILURE.toBoolean()) {
+            AIRGAP_PIPELINE.logInfo('DESTROY_ON_FAILURE is true - attempting infrastructure cleanup')
+            def cleanupScript = '''
+                #!/bin/bash
+                set -e
+                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common-infra.sh
+                init_infra_environment
+                execute_terraform_operation destroy
+            '''
+            AIRGAP_PIPELINE.executeScriptInContainer(
+                env.IMAGE_NAME,
+                env.BUILD_CONTAINER_NAME,
+                env.VALIDATION_VOLUME,
+                cleanupScript,
+                [:],
+                env.ENV_FILE
+            )
+            AIRGAP_PIPELINE.logInfo('Infrastructure cleanup attempted')
+        } else {
+            AIRGAP_PIPELINE.logWarning('DESTROY_ON_FAILURE is false - manual cleanup required')
+        }
+        AIRGAP_PIPELINE.cleanupContainersAndVolumes(
+            env.BUILD_CONTAINER_NAME,
+            env.IMAGE_NAME,
+            env.VALIDATION_VOLUME
+        )
+    } catch (cleanupException) {
+        AIRGAP_PIPELINE.logError("Cleanup during Ansible failure handling failed: ${cleanupException.message}")
+    }
+    throw new Exception('Ansible deployment failed')
+}
+
+// ========================================
+// ARTIFACT MANAGEMENT FUNCTIONS
+// ========================================
+
+def archiveBuildArtifacts(artifacts) {
+    try {
+        archiveArtifacts artifacts: artifacts.join(','), allowEmptyArchive: true
+        AIRGAP_PIPELINE.logInfo("Artifacts archived: ${artifacts.join(', ')}")
+    } catch (Exception e) {
+        AIRGAP_PIPELINE.logError("Failed to archive artifacts: ${e.message}")
+    }
+}
+
+def extractArtifactsFromDockerVolume() {
+    AIRGAP_PIPELINE.logInfo('Extracting artifacts from Docker shared volume to Jenkins workspace')
+
+    try {
+        // Create a temporary container to copy files from the shared volume
+        def timestamp = System.currentTimeMillis()
+        def extractorContainerName = "${env.BUILD_CONTAINER_NAME}-extractor-${timestamp}"
+
+        sh """
+            docker run --rm \\
+                -v ${env.VALIDATION_VOLUME}:/source \\
+                -v \$(pwd):/dest \\
+                --name ${extractorContainerName} \\
+                alpine:latest \\
+                sh -c '
+                    echo "Copying artifacts from shared volume to Jenkins workspace..."
+
+                    # Copy infrastructure outputs if exists
+                    if [ -f /source/infrastructure-outputs.json ]; then
+                        cp /source/infrastructure-outputs.json /dest/
+                        echo "✓ Copied infrastructure-outputs.json"
+                    else
+                        echo "⚠ infrastructure-outputs.json not found in shared volume"
+                    fi
+
+                    # Copy ansible inventory if exists
+                    if [ -f /source/ansible-inventory.yml ]; then
+                        cp /source/ansible-inventory.yml /dest/
+                        echo "✓ Copied ansible-inventory.yml"
+                    else
+                        echo "⚠ ansible-inventory.yml not found in shared volume"
+                    fi
+
+                    # Copy terraform vars file if exists
+                    if [ -f /source/${env.TERRAFORM_VARS_FILENAME} ]; then
+                        cp /source/${env.TERRAFORM_VARS_FILENAME} /dest/
+                        echo "✓ Copied ${env.TERRAFORM_VARS_FILENAME}"
+                    else
+                        echo "⚠ ${env.TERRAFORM_VARS_FILENAME} not found in shared volume"
+                    fi
+
+                    # Copy deployment state if exists
+                    if [ -f /source/deployment_state.json ]; then
+                        cp /source/deployment_state.json /dest/
+                        echo "✓ Copied deployment_state.json"
+                    else
+                        echo "⚠ deployment_state.json not found in shared volume"
+                    fi
+
+                    # Copy deployment summary if exists
+                    if [ -f /source/deployment_summary.txt ]; then
+                        cp /source/deployment_summary.txt /dest/
+                        echo "✓ Copied deployment_summary.txt"
+                    else
+                        echo "⚠ deployment_summary.txt not found in shared volume"
+                    fi
+
+                    # Copy kubeconfig if it exists
+                    if [ -f /source/kubeconfig.yaml ]; then
+                        cp /source/kubeconfig.yaml /dest/
+                        echo "✓ Copied kubeconfig.yaml"
+                    else
+                        echo "⚠ kubeconfig.yaml not found in shared volume"
+                    fi
+
+                    echo "Files successfully copied to Jenkins workspace:"
+                    ls -la /dest/*.json /dest/*.yml /dest/*.txt /dest/*.tfvars 2>/dev/null || echo "No matching files found"
+                '
+        """
+
+        AIRGAP_PIPELINE.logInfo('Artifact extraction completed successfully')
+    } catch (Exception e) {
+        AIRGAP_PIPELINE.logError("Artifact extraction failed: ${e.message}")
+        // Don't fail the build, just log the issue
+        AIRGAP_PIPELINE.logWarning('Build will continue, but some artifacts may not be available for archival')
+    }
+}
+
+def archiveInfrastructureState() {
+    AIRGAP_PIPELINE.logInfo('Archiving infrastructure state')
+    try {
+        archiveBuildArtifacts([
+            'infrastructure-outputs.json',
+            'terraform.tfstate'
+        ])
+        AIRGAP_PIPELINE.logInfo('Infrastructure state processed')
+    } catch (Exception e) {
+        AIRGAP_PIPELINE.logError("State archival failed: ${e.message}")
+    }
+}
+
+def archiveInfrastructureFailureArtifacts() {
+    AIRGAP_PIPELINE.logInfo('Archiving infrastructure failure artifacts')
+    try {
+        archiveBuildArtifacts([
+            'terraform.tfstate',
+            'infrastructure-outputs.json',
+            'error-*.txt'
+        ])
+        AIRGAP_PIPELINE.logInfo('Failure artifacts archived')
+    } catch (Exception e) {
+        AIRGAP_PIPELINE.logError("Failure artifacts archival failed: ${e.message}")
+    }
+}
+
+def archiveBastionFailureArtifacts() {
+    AIRGAP_PIPELINE.logInfo('Archiving bastion preparation failure artifacts')
+    try {
+        archiveBuildArtifacts([
+            'group_vars_summary.txt',
+            'bastion_error-*.txt'
+        ])
+        AIRGAP_PIPELINE.logInfo('Bastion failure artifacts archived')
+    } catch (Exception e) {
+        AIRGAP_PIPELINE.logError("Bastion failure artifacts archival failed: ${e.message}")
+    }
+}
+
+def archiveAnsibleDeploymentArtifacts() {
+    AIRGAP_PIPELINE.logInfo('Archiving Ansible deployment artifacts')
+    try {
+        archiveBuildArtifacts([
+            'ansible-inventory.yml',
+            'deployment_state.json',
+            'deployment_summary.json',
+            'kubeconfig.yaml'
+        ])
+        AIRGAP_PIPELINE.logInfo('Ansible deployment artifacts archived successfully')
+    } catch (Exception e) {
+        AIRGAP_PIPELINE.logError("Ansible deployment artifacts archival failed: ${e.message}")
+    }
+}
+
+def archiveAnsibleFailureArtifacts() {
+    AIRGAP_PIPELINE.logInfo('Archiving Ansible failure artifacts')
+    try {
+        archiveBuildArtifacts([
+            'deployment_state.json',
+            'deployment_summary.txt',
+            'ansible-error-*.txt'
+        ])
+        AIRGAP_PIPELINE.logInfo('Ansible failure artifacts archived successfully')
+    } catch (Exception e) {
+        AIRGAP_PIPELINE.logError("Ansible failure artifacts archival failed: ${e.message}")
+    }
+}
