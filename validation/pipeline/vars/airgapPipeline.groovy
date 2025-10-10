@@ -623,7 +623,7 @@ private def buildDirectEnvironmentVariables() {
                         def value = parts[1].trim()
                         // Pass only NON-SENSITIVE variables
                         // Sensitive variables will be passed via withCredentials block
-                        if (key == 'AWS_REGION' ||
+                        if (key == 'AWS_REGION' || key == 'AWS_IAM_PROFILE' || key == 'AWS_VPC' || key == 'AWS_SECURITY_GROUPS' ||
                             key == 'S3_BUCKET_NAME' || key == 'S3_REGION' || key == 'S3_KEY_PREFIX' ||
                             key == 'ANSIBLE_VARIABLES' || key == 'RKE2_VERSION' || key == 'RANCHER_VERSION' ||
                             key == 'HOSTNAME_PREFIX' ||
