@@ -1,8 +1,11 @@
 #!/usr/bin/env groovy
 
+import groovy.transform.Field
+import org.jenkinsci.plugins.workflow.steps.MissingContextVariableException
+
 /**
  * Optimized Airgap RKE2 Setup Jenkinsfile
- * 
+ *
  * This pipeline is optimized for performance and maintainability by:
  * 1. Using shared Groovy helper library (airgapPipeline.groovy)
  * 2. Consolidating Ansible deployment stages into a single optimized script
@@ -11,7 +14,21 @@
  * 5. Improving error handling and recovery
  */
  
-def AIRGAP_PIPELINE = null
+@Field def AIRGAP_PIPELINE = null
+
+def ensureAirgapPipeline() {
+    if (AIRGAP_PIPELINE != null) {
+        return AIRGAP_PIPELINE
+    }
+    try {
+        AIRGAP_PIPELINE = load 'validation/pipeline/vars/airgapPipeline.groovy'
+    } catch (MissingContextVariableException ex) {
+        node {
+            AIRGAP_PIPELINE = load 'validation/pipeline/vars/airgapPipeline.groovy'
+        }
+    }
+    return AIRGAP_PIPELINE
+}
  
 pipeline {
     agent any
@@ -131,9 +148,7 @@ pipeline {
         stage('Initialize Pipeline') {
             steps {
                 script {
-                    if (AIRGAP_PIPELINE == null) {
-                        AIRGAP_PIPELINE = load 'validation/pipeline/vars/airgapPipeline.groovy'
-                    }
+                    ensureAirgapPipeline()
  
                     env.JOB_SHORT_NAME = AIRGAP_PIPELINE.getShortJobName()
                     env.BUILD_CONTAINER_NAME = "${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}"
@@ -164,6 +179,7 @@ pipeline {
         stage('Checkout Repositories') {
             steps {
                 script {
+                    ensureAirgapPipeline()
                     AIRGAP_PIPELINE.logInfo('Checking out source repositories')
 
                     // Checkout Rancher Tests Repository
@@ -206,6 +222,7 @@ pipeline {
         stage('Configure Environment') {
             steps {
                 script {
+                    ensureAirgapPipeline()
                     AIRGAP_PIPELINE.logInfo('Configuring deployment environment')
 
                     // Read Ansible variables from textbox parameter
@@ -237,6 +254,7 @@ pipeline {
             }
             steps {
                 script {
+                    ensureAirgapPipeline()
                     AIRGAP_PIPELINE.logInfo('Deploying infrastructure with OpenTofu')
 
                     // Configuration validation
@@ -362,6 +380,7 @@ pipeline {
             }
             steps {
                 script {
+                    ensureAirgapPipeline()
                     AIRGAP_PIPELINE.logInfo('Preparing bastion host for Ansible deployment')
 
                     // Configuration validation
@@ -445,6 +464,7 @@ pipeline {
             }
             steps {
                 script {
+                    ensureAirgapPipeline()
                     AIRGAP_PIPELINE.logInfo('Deploying RKE2 cluster and Rancher with optimized Ansible workflow')
 
                     // Configuration validation
@@ -518,6 +538,7 @@ pipeline {
     post {
         always {
             script {
+                ensureAirgapPipeline()
                 if (AIRGAP_PIPELINE == null) {
                     echo '[WARNING] Airgap pipeline library unavailable during post-build cleanup'
                     return
@@ -559,6 +580,7 @@ pipeline {
 
         success {
             script {
+                ensureAirgapPipeline()
                 if (AIRGAP_PIPELINE == null) {
                     echo '[WARNING] Airgap pipeline library unavailable for success notification'
                     return
@@ -573,6 +595,7 @@ pipeline {
 
         failure {
             script {
+                ensureAirgapPipeline()
                 if (AIRGAP_PIPELINE == null) {
                     echo '[WARNING] Airgap pipeline library unavailable for failure notification'
                     return
@@ -587,6 +610,7 @@ pipeline {
 
         unstable {
             script {
+                ensureAirgapPipeline()
                 if (AIRGAP_PIPELINE == null) {
                     echo '[WARNING] Airgap pipeline library unavailable for unstable notification'
                     return
@@ -606,6 +630,7 @@ pipeline {
 // ========================================
 
 def validateParameters() {
+    ensureAirgapPipeline()
     AIRGAP_PIPELINE.logInfo('Validating pipeline parameters')
 
     def validationErrors = []
@@ -648,6 +673,7 @@ def validateParameters() {
 }
 
 def setupDynamicEnvironment() {
+    ensureAirgapPipeline()
     env.RKE2_VERSION = params.RKE2_VERSION
     env.RANCHER_VERSION = params.RANCHER_VERSION
     env.TERRAFORM_VARS_FILENAME = 'cluster.tfvars'
@@ -659,6 +685,7 @@ def setupDynamicEnvironment() {
 }
 
 def readAnsibleVariablesFile() {
+    ensureAirgapPipeline()
     AIRGAP_PIPELINE.logInfo('Reading Ansible variables from textbox parameter')
 
     def ansibleVarsContent = ''
@@ -679,11 +706,13 @@ def readAnsibleVariablesFile() {
 }
 
 def generateEnvironmentFile() {
+    ensureAirgapPipeline()
     // Use the shared library function
     AIRGAP_PIPELINE.generateEnvironmentFile(env)
 }
 
 def setupSSHKeys() {
+    ensureAirgapPipeline()
     AIRGAP_PIPELINE.logInfo('Setting up SSH keys with secure handling')
 
     // Get credentials within withCredentials block to ensure they're available
@@ -736,6 +765,7 @@ def setupSSHKeys() {
 }
 
 def cleanupSSHKeys() {
+    ensureAirgapPipeline()
     AIRGAP_PIPELINE.logInfo('Cleaning up SSH keys securely')
 
     try {
@@ -777,6 +807,7 @@ def cleanupSSHKeys() {
 }
 
 def generateTofuConfiguration() {
+    ensureAirgapPipeline()
     AIRGAP_PIPELINE.logInfo('Generating Terraform configuration')
 
     if (!env.TERRAFORM_CONFIG) {
@@ -811,6 +842,7 @@ def generateTofuConfiguration() {
 }
 
 def uploadClusterTfvarsToS3() {
+    ensureAirgapPipeline()
     AIRGAP_PIPELINE.logInfo('Uploading cluster.tfvars to S3')
 
     // Validate required S3 variables
@@ -850,6 +882,7 @@ def uploadClusterTfvarsToS3() {
 }
 
 def handleTimeoutFailure() {
+    ensureAirgapPipeline()
     AIRGAP_PIPELINE.logError("Infrastructure deployment timed out after ${env.TERRAFORM_TIMEOUT} minutes")
     try {
         archiveInfrastructureFailureArtifacts()
@@ -886,6 +919,7 @@ def handleTimeoutFailure() {
 }
 
 def handleDeploymentFailure() {
+    ensureAirgapPipeline()
     AIRGAP_PIPELINE.logError('Infrastructure setup failed')
     try {
         archiveInfrastructureFailureArtifacts()
@@ -922,6 +956,7 @@ def handleDeploymentFailure() {
 }
 
 def handleAnsibleDeploymentFailure() {
+    ensureAirgapPipeline()
     AIRGAP_PIPELINE.logError('Ansible deployment failed - initiating cleanup')
     try {
         archiveAnsibleFailureArtifacts()
@@ -962,6 +997,7 @@ def handleAnsibleDeploymentFailure() {
 // ========================================
 
 def archiveBuildArtifacts(artifacts) {
+    ensureAirgapPipeline()
     try {
         archiveArtifacts artifacts: artifacts.join(','), allowEmptyArchive: true
         AIRGAP_PIPELINE.logInfo("Artifacts archived: ${artifacts.join(', ')}")
@@ -971,6 +1007,7 @@ def archiveBuildArtifacts(artifacts) {
 }
 
 def extractArtifactsFromDockerVolume() {
+    ensureAirgapPipeline()
     AIRGAP_PIPELINE.logInfo('Extracting artifacts from Docker shared volume to Jenkins workspace')
 
     try {
@@ -1049,6 +1086,7 @@ def extractArtifactsFromDockerVolume() {
 }
 
 def archiveInfrastructureState() {
+    ensureAirgapPipeline()
     AIRGAP_PIPELINE.logInfo('Archiving infrastructure state')
     try {
         archiveBuildArtifacts([
@@ -1062,6 +1100,7 @@ def archiveInfrastructureState() {
 }
 
 def archiveInfrastructureFailureArtifacts() {
+    ensureAirgapPipeline()
     AIRGAP_PIPELINE.logInfo('Archiving infrastructure failure artifacts')
     try {
         archiveBuildArtifacts([
@@ -1076,6 +1115,7 @@ def archiveInfrastructureFailureArtifacts() {
 }
 
 def archiveBastionFailureArtifacts() {
+    ensureAirgapPipeline()
     AIRGAP_PIPELINE.logInfo('Archiving bastion preparation failure artifacts')
     try {
         archiveBuildArtifacts([
@@ -1089,6 +1129,7 @@ def archiveBastionFailureArtifacts() {
 }
 
 def archiveAnsibleDeploymentArtifacts() {
+    ensureAirgapPipeline()
     AIRGAP_PIPELINE.logInfo('Archiving Ansible deployment artifacts')
     try {
         archiveBuildArtifacts([
@@ -1104,6 +1145,7 @@ def archiveAnsibleDeploymentArtifacts() {
 }
 
 def archiveAnsibleFailureArtifacts() {
+    ensureAirgapPipeline()
     AIRGAP_PIPELINE.logInfo('Archiving Ansible failure artifacts')
     try {
         archiveBuildArtifacts([
