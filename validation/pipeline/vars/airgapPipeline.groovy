@@ -288,6 +288,7 @@ def executeScriptInContainer(imageName, containerName, volumeName, scriptContent
     logDebug("passed volumeName: '${volumeName}' (type: ${volumeName?.class?.simpleName})")
 
     // Try to restore from file if environment variables are missing
+    def restoredValues = [:]
     if (!env.IMAGE_NAME || !env.BUILD_CONTAINER_NAME || !env.VALIDATION_VOLUME) {
         logWarning("Environment variables missing, attempting to restore from file...")
         if (fileExists('pipeline-env.properties')) {
@@ -299,7 +300,13 @@ def executeScriptInContainer(imageName, containerName, volumeName, scriptContent
                         def key = parts[0].trim()
                         def value = parts[1].trim()
                         logDebug("Restoring from file: ${key} = '${value}'")
-                        env.setProperty(key, value)
+                        // Store locally AND try to set in environment
+                        restoredValues[key] = value
+                        try {
+                            env.setProperty(key, value)
+                        } catch (Exception e) {
+                            logDebug("env.setProperty() failed for ${key}: ${e.message}")
+                        }
                     }
                 }
             }
@@ -313,11 +320,12 @@ def executeScriptInContainer(imageName, containerName, volumeName, scriptContent
     logDebug("env.IMAGE_NAME: '${env.IMAGE_NAME}' (type: ${env.IMAGE_NAME?.class?.simpleName})")
     logDebug("env.BUILD_CONTAINER_NAME: '${env.BUILD_CONTAINER_NAME}' (type: ${env.BUILD_CONTAINER_NAME?.class?.simpleName})")
     logDebug("env.VALIDATION_VOLUME: '${env.VALIDATION_VOLUME}' (type: ${env.VALIDATION_VOLUME?.class?.simpleName})")
+    logDebug("Restored values map: ${restoredValues}")
 
-    // Ensure parameters are not null with fallbacks
-    imageName = imageName ?: env.IMAGE_NAME ?: 'unknown'
-    containerName = containerName ?: env.BUILD_CONTAINER_NAME ?: 'unknown'
-    volumeName = volumeName ?: env.VALIDATION_VOLUME ?: 'unknown'
+    // Use restored values directly if environment variables are still null
+    imageName = imageName ?: env.IMAGE_NAME ?: restoredValues.IMAGE_NAME ?: 'unknown'
+    containerName = containerName ?: env.BUILD_CONTAINER_NAME ?: restoredValues.BUILD_CONTAINER_NAME ?: 'unknown'
+    volumeName = volumeName ?: env.VALIDATION_VOLUME ?: restoredValues.VALIDATION_VOLUME ?: 'unknown'
 
     // Log the parameters for debugging
     logInfo("Container execution parameters:")
