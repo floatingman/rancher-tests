@@ -351,13 +351,24 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                     ensureAirgapPipeline()
                     
                     // Restore environment variables from file to ensure persistence
+                    def restoredImageName = null
+                    def restoredContainerName = null
+                    def restoredVolumeName = null
+
                     if (fileExists('pipeline-env.properties')) {
                         def propsText = readFile file: 'pipeline-env.properties'
                         propsText.split('\n').each { line ->
                             if (line.trim() && line.contains('=')) {
                                 def parts = line.split('=', 2)
                                 if (parts.size() == 2) {
-                                    env.setProperty(parts[0].trim(), parts[1].trim())
+                                    def key = parts[0].trim()
+                                    def value = parts[1].trim()
+                                    env.setProperty(key, value)
+
+                                    // Store the values we need for Docker operations
+                                    if (key == 'IMAGE_NAME') restoredImageName = value
+                                    if (key == 'BUILD_CONTAINER_NAME') restoredContainerName = value
+                                    if (key == 'VALIDATION_VOLUME') restoredVolumeName = value
                                 }
                             }
                         }
@@ -366,21 +377,30 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                         echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
                         echo "IMAGE_NAME=${env.IMAGE_NAME}"
                         echo "VALIDATION_VOLUME=${env.VALIDATION_VOLUME}"
+
+                        // Verify local variables are set
+                        echo "Local Docker variables: IMAGE_NAME=${restoredImageName}, CONTAINER=${restoredContainerName}, VOLUME=${restoredVolumeName}"
                     } else {
                         // Fallback if file doesn't exist
                         def jobShortName = AIRGAP_PIPELINE.getShortJobName()
                         def buildNumber = env.BUILD_NUMBER ?: 'unknown'
+                        restoredImageName = "rancher-airgap-${jobShortName}${buildNumber}"
+                        restoredContainerName = "${jobShortName}${buildNumber}"
+                        restoredVolumeName = "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}"
                         env.setProperty('JOB_SHORT_NAME', jobShortName)
-                        env.setProperty('BUILD_CONTAINER_NAME', "${jobShortName}${buildNumber}")
-                        env.setProperty('IMAGE_NAME', "rancher-airgap-${jobShortName}${buildNumber}")
-                        env.setProperty('VALIDATION_VOLUME', "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}")
+                        env.setProperty('BUILD_CONTAINER_NAME', restoredContainerName)
+                        env.setProperty('IMAGE_NAME', restoredImageName)
+                        env.setProperty('VALIDATION_VOLUME', restoredVolumeName)
                         echo "Environment variables recreated from fallback:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
                         echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
                         echo "IMAGE_NAME=${env.IMAGE_NAME}"
                         echo "VALIDATION_VOLUME=${env.VALIDATION_VOLUME}"
+
+                        // Verify local variables are set
+                        echo "Local Docker variables (fallback): IMAGE_NAME=${restoredImageName}, CONTAINER=${restoredContainerName}, VOLUME=${restoredVolumeName}"
                     }
-                    
+
                     AIRGAP_PIPELINE.logInfo('Deploying infrastructure with OpenTofu')
 
                     // Configuration validation
@@ -1092,11 +1112,20 @@ def generateTofuConfiguration() {
     terraformConfig = terraformConfig.replace('${AWS_SECURITY_GROUPS}', env.AWS_SECURITY_GROUPS ?: '')
     terraformConfig = terraformConfig.replace('${HOSTNAME_PREFIX}', env.HOSTNAME_PREFIX ?: '')
 
-    // Write the configuration file
+    // Write the configuration file with proper formatting
     dir('./qa-infra-automation') {
         dir('./tofu/aws/modules/airgap') {
-            writeFile file: env.TERRAFORM_VARS_FILENAME, text: terraformConfig
+            // Ensure the terraform config is properly formatted with newlines
+            def formattedConfig = terraformConfig.replaceAll(/([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([^"\n]+)\s*/, '$1 = "$2"\n')
+            formattedConfig = formattedConfig.replaceAll(/([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*"([^"]*)"\s*/, '$1 = "$2"\n')
+            formattedConfig = formattedConfig.replaceAll(/\n+/, '\n')
+            if (!formattedConfig.endsWith('\n')) {
+                formattedConfig += '\n'
+            }
+
+            writeFile file: env.TERRAFORM_VARS_FILENAME, text: formattedConfig
             AIRGAP_PIPELINE.logInfo("Terraform configuration written to: ${env.TERRAFORM_VARS_FILENAME}")
+            AIRGAP_PIPELINE.logInfo("Configuration formatted with proper newlines for Terraform compatibility")
         }
     }
 }
