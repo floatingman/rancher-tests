@@ -413,6 +413,29 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                                 init_infra_environment
                                 execute_terraform_operation init
                             '''
+                            // First, generate the backend configuration
+                            def backendConfigScript = '''
+                                #!/bin/bash
+                                set -e
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common-infra.sh
+                                init_infra_environment
+                                execute_terraform_operation generate-backend
+                            '''
+                            AIRGAP_PIPELINE.executeScriptInContainer(
+                                env.IMAGE_NAME,
+                                env.BUILD_CONTAINER_NAME,
+                                env.VALIDATION_VOLUME,
+                                backendConfigScript,
+                                [
+                                    TF_WORKSPACE: env.TF_WORKSPACE,
+                                    S3_BUCKET_NAME: env.S3_BUCKET_NAME,
+                                    S3_REGION: env.S3_REGION,
+                                    S3_KEY_PREFIX: env.S3_KEY_PREFIX
+                                ],
+                                env.ENV_FILE
+                            )
+
+                            // Then initialize OpenTofu
                             AIRGAP_PIPELINE.executeScriptInContainer(
                                 env.IMAGE_NAME,
                                 env.BUILD_CONTAINER_NAME,
