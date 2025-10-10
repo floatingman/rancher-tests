@@ -273,13 +273,24 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                     ensureAirgapPipeline()
                     
                     // Restore environment variables from file to ensure persistence
+                    def restoredImageName = null
+                    def restoredContainerName = null
+                    def restoredVolumeName = null
+
                     if (fileExists('pipeline-env.properties')) {
                         def propsText = readFile file: 'pipeline-env.properties'
                         propsText.split('\n').each { line ->
                             if (line.trim() && line.contains('=')) {
                                 def parts = line.split('=', 2)
                                 if (parts.size() == 2) {
-                                    env.setProperty(parts[0].trim(), parts[1].trim())
+                                    def key = parts[0].trim()
+                                    def value = parts[1].trim()
+                                    env.setProperty(key, value)
+
+                                    // Store the values we need for Docker build
+                                    if (key == 'IMAGE_NAME') restoredImageName = value
+                                    if (key == 'BUILD_CONTAINER_NAME') restoredContainerName = value
+                                    if (key == 'VALIDATION_VOLUME') restoredVolumeName = value
                                 }
                             }
                         }
@@ -292,10 +303,13 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                         // Fallback if file doesn't exist
                         def jobShortName = AIRGAP_PIPELINE.getShortJobName()
                         def buildNumber = env.BUILD_NUMBER ?: 'unknown'
+                        restoredImageName = "rancher-airgap-${jobShortName}${buildNumber}"
+                        restoredContainerName = "${jobShortName}${buildNumber}"
+                        restoredVolumeName = "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}"
                         env.setProperty('JOB_SHORT_NAME', jobShortName)
-                        env.setProperty('BUILD_CONTAINER_NAME', "${jobShortName}${buildNumber}")
-                        env.setProperty('IMAGE_NAME', "rancher-airgap-${jobShortName}${buildNumber}")
-                        env.setProperty('VALIDATION_VOLUME', "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}")
+                        env.setProperty('BUILD_CONTAINER_NAME', restoredContainerName)
+                        env.setProperty('IMAGE_NAME', restoredImageName)
+                        env.setProperty('VALIDATION_VOLUME', restoredVolumeName)
                         echo "Environment variables recreated from fallback:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
                         echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
@@ -316,11 +330,11 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                         // Setup SSH keys securely
                         setupSSHKeys()
 
-                        // Build Docker image with proper tagging
-                        AIRGAP_PIPELINE.buildDockerImage(env.IMAGE_NAME ?: "rancher-airgap-${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}")
+                        // Build Docker image with proper tagging using restored values
+                        AIRGAP_PIPELINE.buildDockerImage(restoredImageName)
 
-                        // Create shared volume
-                        AIRGAP_PIPELINE.createSharedVolume(env.VALIDATION_VOLUME ?: "AnsibleAirgapSharedVolume-${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}")
+                        // Create shared volume using restored values
+                        AIRGAP_PIPELINE.createSharedVolume(restoredVolumeName)
                     }
 
                     AIRGAP_PIPELINE.logInfo('Environment configuration completed')
