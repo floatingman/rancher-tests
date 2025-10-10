@@ -161,10 +161,10 @@ VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
                     writeFile file: 'pipeline-env.properties', text: envContent
                     
                     // Also set them in the environment
-                    env.JOB_SHORT_NAME = jobShortName
-                    env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}-destroy"
-                    env.IMAGE_NAME = "rancher-destroy-${jobShortName}${buildNumber}"
-                    env.VALIDATION_VOLUME = "DestroySharedVolume-${jobShortName}${buildNumber}"
+                    env.setProperty('JOB_SHORT_NAME', jobShortName)
+                    env.setProperty('BUILD_CONTAINER_NAME', "${jobShortName}${buildNumber}-destroy")
+                    env.setProperty('IMAGE_NAME', "rancher-destroy-${jobShortName}${buildNumber}")
+                    env.setProperty('VALIDATION_VOLUME', "DestroySharedVolume-${jobShortName}${buildNumber}")
                     
                     // Print environment variables for debugging
                     echo "Environment variables set:"
@@ -220,10 +220,10 @@ VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
                         // Fallback if file doesn't exist
                         def jobShortName = AIRGAP_PIPELINE.getShortJobName()
                         def buildNumber = env.BUILD_NUMBER ?: 'unknown'
-                        env.JOB_SHORT_NAME = jobShortName
-                        env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}-destroy"
-                        env.IMAGE_NAME = "rancher-destroy-${jobShortName}${buildNumber}"
-                        env.VALIDATION_VOLUME = "DestroySharedVolume-${jobShortName}${buildNumber}"
+                        env.setProperty('JOB_SHORT_NAME', jobShortName)
+                        env.setProperty('BUILD_CONTAINER_NAME', "${jobShortName}${buildNumber}-destroy")
+                        env.setProperty('IMAGE_NAME', "rancher-destroy-${jobShortName}${buildNumber}")
+                        env.setProperty('VALIDATION_VOLUME', "DestroySharedVolume-${jobShortName}${buildNumber}")
                         echo "Environment variables recreated from fallback:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
                         echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
@@ -290,10 +290,10 @@ VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
                         // Fallback if file doesn't exist
                         def jobShortName = AIRGAP_PIPELINE.getShortJobName()
                         def buildNumber = env.BUILD_NUMBER ?: 'unknown'
-                        env.JOB_SHORT_NAME = jobShortName
-                        env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}-destroy"
-                        env.IMAGE_NAME = "rancher-destroy-${jobShortName}${buildNumber}"
-                        env.VALIDATION_VOLUME = "DestroySharedVolume-${jobShortName}${buildNumber}"
+                        env.setProperty('JOB_SHORT_NAME', jobShortName)
+                        env.setProperty('BUILD_CONTAINER_NAME', "${jobShortName}${buildNumber}-destroy")
+                        env.setProperty('IMAGE_NAME', "rancher-destroy-${jobShortName}${buildNumber}")
+                        env.setProperty('VALIDATION_VOLUME', "DestroySharedVolume-${jobShortName}${buildNumber}")
                         echo "Environment variables recreated from fallback:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
                         echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
@@ -343,10 +343,10 @@ VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
                         // Fallback if file doesn't exist
                         def jobShortName = AIRGAP_PIPELINE.getShortJobName()
                         def buildNumber = env.BUILD_NUMBER ?: 'unknown'
-                        env.JOB_SHORT_NAME = jobShortName
-                        env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}-destroy"
-                        env.IMAGE_NAME = "rancher-destroy-${jobShortName}${buildNumber}"
-                        env.VALIDATION_VOLUME = "DestroySharedVolume-${jobShortName}${buildNumber}"
+                        env.setProperty('JOB_SHORT_NAME', jobShortName)
+                        env.setProperty('BUILD_CONTAINER_NAME', "${jobShortName}${buildNumber}-destroy")
+                        env.setProperty('IMAGE_NAME', "rancher-destroy-${jobShortName}${buildNumber}")
+                        env.setProperty('VALIDATION_VOLUME', "DestroySharedVolume-${jobShortName}${buildNumber}")
                         echo "Environment variables recreated from fallback:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
                         echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
@@ -524,10 +524,10 @@ VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
                         // Fallback if file doesn't exist
                         def jobShortName = AIRGAP_PIPELINE.getShortJobName()
                         def buildNumber = env.BUILD_NUMBER ?: 'unknown'
-                        env.JOB_SHORT_NAME = jobShortName
-                        env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}-destroy"
-                        env.IMAGE_NAME = "rancher-destroy-${jobShortName}${buildNumber}"
-                        env.VALIDATION_VOLUME = "DestroySharedVolume-${jobShortName}${buildNumber}"
+                        env.setProperty('JOB_SHORT_NAME', jobShortName)
+                        env.setProperty('BUILD_CONTAINER_NAME', "${jobShortName}${buildNumber}-destroy")
+                        env.setProperty('IMAGE_NAME', "rancher-destroy-${jobShortName}${buildNumber}")
+                        env.setProperty('VALIDATION_VOLUME', "DestroySharedVolume-${jobShortName}${buildNumber}")
                         echo "Environment variables recreated from fallback:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
                         echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
@@ -586,10 +586,10 @@ VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
                     // Fallback if file doesn't exist
                     def jobShortName = AIRGAP_PIPELINE.getShortJobName()
                     def buildNumber = env.BUILD_NUMBER ?: 'unknown'
-                    env.JOB_SHORT_NAME = jobShortName
-                    env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}-destroy"
-                    env.IMAGE_NAME = "rancher-destroy-${jobShortName}${buildNumber}"
-                    env.VALIDATION_VOLUME = "DestroySharedVolume-${jobShortName}${buildNumber}"
+                    env.setProperty('JOB_SHORT_NAME', jobShortName)
+                    env.setProperty('BUILD_CONTAINER_NAME', "${jobShortName}${buildNumber}-destroy")
+                    env.setProperty('IMAGE_NAME', "rancher-destroy-${jobShortName}${buildNumber}")
+                    env.setProperty('VALIDATION_VOLUME', "DestroySharedVolume-${jobShortName}${buildNumber}")
                     echo "Environment variables recreated from fallback in post-build cleanup:"
                     echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
                     echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
@@ -712,8 +712,8 @@ def validateParameters() {
 
 def setupDynamicEnvironment() {
     ensureAirgapPipeline()
-    env.TERRAFORM_VARS_FILENAME = 'cluster.tfvars'
-    env.TERRAFORM_BACKEND_VARS_FILENAME = 'backend.tfvars'
+    env.setProperty('TERRAFORM_VARS_FILENAME', 'cluster.tfvars')
+    env.setProperty('TERRAFORM_BACKEND_VARS_FILENAME', 'backend.tfvars')
 
     AIRGAP_PIPELINE.logInfo('Dynamic environment configured')
     AIRGAP_PIPELINE.logInfo("Terraform Vars Filename: ${env.TERRAFORM_VARS_FILENAME}")

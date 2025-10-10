@@ -177,11 +177,20 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
 """
                     writeFile file: 'pipeline-env.properties', text: envContent
                     
-                    // Also set them in the environment
-                    env.JOB_SHORT_NAME = jobShortName
-                    env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}"
-                    env.IMAGE_NAME = "rancher-airgap-${jobShortName}${buildNumber}"
-                    env.VALIDATION_VOLUME = "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}"
+                    // Also set them in the environment using a more robust approach
+                    try {
+                        env.setProperty('JOB_SHORT_NAME', jobShortName)
+                        env.setProperty('BUILD_CONTAINER_NAME', "${jobShortName}${buildNumber}")
+                        env.setProperty('IMAGE_NAME', "rancher-airgap-${jobShortName}${buildNumber}")
+                        env.setProperty('VALIDATION_VOLUME', "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}")
+                    } catch (Exception e) {
+                        echo "Warning: Could not set environment variables using setProperty: ${e.message}"
+                        // Store in script variables as fallback
+                        scriptJobShortName = jobShortName
+                        scriptBuildNumber = buildNumber
+                        scriptImageName = "rancher-airgap-${jobShortName}${buildNumber}"
+                        scriptValidationVolume = "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}"
+                    }
                     
                     // Print environment variables for debugging
                     echo "Environment variables set:"
@@ -283,10 +292,10 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                         // Fallback if file doesn't exist
                         def jobShortName = AIRGAP_PIPELINE.getShortJobName()
                         def buildNumber = env.BUILD_NUMBER ?: 'unknown'
-                        env.JOB_SHORT_NAME = jobShortName
-                        env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}"
-                        env.IMAGE_NAME = "rancher-airgap-${jobShortName}${buildNumber}"
-                        env.VALIDATION_VOLUME = "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}"
+                        env.setProperty('JOB_SHORT_NAME', jobShortName)
+                        env.setProperty('BUILD_CONTAINER_NAME', "${jobShortName}${buildNumber}")
+                        env.setProperty('IMAGE_NAME', "rancher-airgap-${jobShortName}${buildNumber}")
+                        env.setProperty('VALIDATION_VOLUME', "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}")
                         echo "Environment variables recreated from fallback:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
                         echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
@@ -347,10 +356,10 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                         // Fallback if file doesn't exist
                         def jobShortName = AIRGAP_PIPELINE.getShortJobName()
                         def buildNumber = env.BUILD_NUMBER ?: 'unknown'
-                        env.JOB_SHORT_NAME = jobShortName
-                        env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}"
-                        env.IMAGE_NAME = "rancher-airgap-${jobShortName}${buildNumber}"
-                        env.VALIDATION_VOLUME = "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}"
+                        env.setProperty('JOB_SHORT_NAME', jobShortName)
+                        env.setProperty('BUILD_CONTAINER_NAME', "${jobShortName}${buildNumber}")
+                        env.setProperty('IMAGE_NAME', "rancher-airgap-${jobShortName}${buildNumber}")
+                        env.setProperty('VALIDATION_VOLUME', "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}")
                         echo "Environment variables recreated from fallback:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
                         echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
@@ -505,10 +514,10 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                         // Fallback if file doesn't exist
                         def jobShortName = AIRGAP_PIPELINE.getShortJobName()
                         def buildNumber = env.BUILD_NUMBER ?: 'unknown'
-                        env.JOB_SHORT_NAME = jobShortName
-                        env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}"
-                        env.IMAGE_NAME = "rancher-airgap-${jobShortName}${buildNumber}"
-                        env.VALIDATION_VOLUME = "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}"
+                        env.setProperty('JOB_SHORT_NAME', jobShortName)
+                        env.setProperty('BUILD_CONTAINER_NAME', "${jobShortName}${buildNumber}")
+                        env.setProperty('IMAGE_NAME', "rancher-airgap-${jobShortName}${buildNumber}")
+                        env.setProperty('VALIDATION_VOLUME', "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}")
                         echo "Environment variables recreated from fallback:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
                         echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
@@ -621,10 +630,10 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                         // Fallback if file doesn't exist
                         def jobShortName = AIRGAP_PIPELINE.getShortJobName()
                         def buildNumber = env.BUILD_NUMBER ?: 'unknown'
-                        env.JOB_SHORT_NAME = jobShortName
-                        env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}"
-                        env.IMAGE_NAME = "rancher-airgap-${jobShortName}${buildNumber}"
-                        env.VALIDATION_VOLUME = "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}"
+                        env.setProperty('JOB_SHORT_NAME', jobShortName)
+                        env.setProperty('BUILD_CONTAINER_NAME', "${jobShortName}${buildNumber}")
+                        env.setProperty('IMAGE_NAME', "rancher-airgap-${jobShortName}${buildNumber}")
+                        env.setProperty('VALIDATION_VOLUME', "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}")
                         echo "Environment variables recreated from fallback:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
                         echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
@@ -731,10 +740,10 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                     // Fallback if file doesn't exist
                     def jobShortName = AIRGAP_PIPELINE.getShortJobName()
                     def buildNumber = env.BUILD_NUMBER ?: 'unknown'
-                    env.JOB_SHORT_NAME = jobShortName
-                    env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}"
-                    env.IMAGE_NAME = "rancher-airgap-${jobShortName}${buildNumber}"
-                    env.VALIDATION_VOLUME = "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}"
+                    env.setProperty('JOB_SHORT_NAME', jobShortName)
+                    env.setProperty('BUILD_CONTAINER_NAME', "${jobShortName}${buildNumber}")
+                    env.setProperty('IMAGE_NAME', "rancher-airgap-${jobShortName}${buildNumber}")
+                    env.setProperty('VALIDATION_VOLUME', "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}")
                     echo "Environment variables recreated from fallback in post-build cleanup:"
                     echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
                     echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
@@ -873,9 +882,9 @@ def validateParameters() {
 
 def setupDynamicEnvironment() {
     ensureAirgapPipeline()
-    env.RKE2_VERSION = params.RKE2_VERSION
-    env.RANCHER_VERSION = params.RANCHER_VERSION
-    env.TERRAFORM_VARS_FILENAME = 'cluster.tfvars'
+    env.setProperty('RKE2_VERSION', params.RKE2_VERSION)
+    env.setProperty('RANCHER_VERSION', params.RANCHER_VERSION)
+    env.setProperty('TERRAFORM_VARS_FILENAME', 'cluster.tfvars')
 
     AIRGAP_PIPELINE.logInfo('Dynamic environment configured')
     AIRGAP_PIPELINE.logInfo("RKE2 Version: ${env.RKE2_VERSION}")
@@ -900,7 +909,7 @@ def readAnsibleVariablesFile() {
     }
 
     // Store in environment for passing to containers
-    env.ANSIBLE_VARIABLES = ansibleVarsContent
+    env.setProperty('ANSIBLE_VARIABLES', ansibleVarsContent)
     AIRGAP_PIPELINE.logInfo('Ansible variables loaded successfully')
 }
 
