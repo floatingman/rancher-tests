@@ -675,11 +675,25 @@ def sendSlackNotification(config) {
 // ========================================
 
 def getShortJobName() {
+    // Debug: Log the raw JOB_NAME value
+    logDebug("Raw env.JOB_NAME: '${env.JOB_NAME}' (type: ${env.JOB_NAME?.class?.simpleName})")
+
     def jobName = "${env.JOB_NAME}"
+    logDebug("Interpolated jobName: '${jobName}' (type: ${jobName?.class?.simpleName})")
+
+    if (jobName == null || jobName.trim().isEmpty()) {
+        logError("JOB_NAME is null or empty")
+        return "unknown-job"
+    }
+
     if (jobName.contains('/')) {
         def lastSlashIndex = jobName.lastIndexOf('/')
-        return jobName.substring(lastSlashIndex + 1)
+        def shortName = jobName.substring(lastSlashIndex + 1)
+        logDebug("Extracted short name: '${shortName}' from jobName: '${jobName}'")
+        return shortName
     }
+
+    logDebug("Using full jobName as short name: '${jobName}'")
     return jobName
 }
 

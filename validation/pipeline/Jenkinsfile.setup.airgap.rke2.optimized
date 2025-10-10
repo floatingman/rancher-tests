@@ -149,10 +149,22 @@ pipeline {
             steps {
                 script {
                     ensureAirgapPipeline()
- 
+
+                    // Debug: Check if Jenkins environment variables are available
+                    echo "=== DEBUG: Jenkins Environment Variables ==="
+                    echo "env.JOB_NAME: '${env.JOB_NAME}' (type: ${env.JOB_NAME?.class?.simpleName})"
+                    echo "env.BUILD_NUMBER: '${env.BUILD_NUMBER}' (type: ${env.BUILD_NUMBER?.class?.simpleName})"
+                    echo "Current build name: ${currentBuild.displayName}"
+                    echo "=== END DEBUG ==="
+
                     def jobShortName = AIRGAP_PIPELINE.getShortJobName()
                     def buildNumber = env.BUILD_NUMBER ?: 'unknown'
-                    
+
+                    echo "=== DEBUG: Computed Variables ==="
+                    echo "jobShortName: '${jobShortName}' (type: ${jobShortName?.class?.simpleName})"
+                    echo "buildNumber: '${buildNumber}' (type: ${buildNumber?.class?.simpleName})"
+                    echo "=== END DEBUG ==="
+
                     // Set environment variables that need to persist across stages
                     currentBuild.displayName = "#${env.BUILD_NUMBER} - ${jobShortName}"
                     
