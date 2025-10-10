@@ -399,6 +399,14 @@ private def buildDockerCommand(imageName, containerName, volumeName, scriptFile,
     } else {
         logWarning("QA infra automation path not found: ${qaInfraPath}")
     }
+
+    // Add validation scripts volume (for common-infra.sh and common.sh)
+    def validationScriptsPath = "${pwd()}/validation/pipeline/scripts"
+    if (fileExists(validationScriptsPath)) {
+        volumeMounts.add("-v \"${validationScriptsPath}:/root/go/src/github.com/rancher/tests/validation/pipeline/scripts\"")
+    } else {
+        logWarning("Validation scripts path not found: ${validationScriptsPath}")
+    }
     
     // Add script file volume
     if (fileExists(scriptFile)) {
