@@ -157,18 +157,26 @@ pipeline {
                     currentBuild.displayName = "#${env.BUILD_NUMBER} - ${jobShortName}"
                     
                     // Write environment variables to a file to ensure persistence
-                    writeFile file: 'pipeline-env.properties', text: """
+                    def envContent = """
 JOB_SHORT_NAME=${jobShortName}
 BUILD_CONTAINER_NAME=${jobShortName}${buildNumber}
 IMAGE_NAME=rancher-airgap-${jobShortName}${buildNumber}
 VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
 """
+                    writeFile file: 'pipeline-env.properties', text: envContent
                     
                     // Also set them in the environment
                     env.JOB_SHORT_NAME = jobShortName
                     env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}"
                     env.IMAGE_NAME = "rancher-airgap-${jobShortName}${buildNumber}"
                     env.VALIDATION_VOLUME = "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}"
+                    
+                    // Print environment variables for debugging
+                    echo "Environment variables set:"
+                    echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
+                    echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
+                    echo "IMAGE_NAME=${env.IMAGE_NAME}"
+                    echo "VALIDATION_VOLUME=${env.VALIDATION_VOLUME}"
  
                     AIRGAP_PIPELINE.logInfo('Initializing optimized pipeline')
  
@@ -187,6 +195,11 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                         props.each { key, value ->
                             env[key] = value
                         }
+                        echo "Environment variables restored from pipeline-env.properties:"
+                        echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
+                        echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
+                        echo "IMAGE_NAME=${env.IMAGE_NAME}"
+                        echo "VALIDATION_VOLUME=${env.VALIDATION_VOLUME}"
                     }
                     
                     AIRGAP_PIPELINE.logInfo("Pipeline initialized successfully")
@@ -253,6 +266,11 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                         props.each { key, value ->
                             env[key] = value
                         }
+                        echo "Environment variables restored in Configure Environment stage:"
+                        echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
+                        echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
+                        echo "IMAGE_NAME=${env.IMAGE_NAME}"
+                        echo "VALIDATION_VOLUME=${env.VALIDATION_VOLUME}"
                     }
                     
                     AIRGAP_PIPELINE.logInfo('Configuring deployment environment')
@@ -269,10 +287,10 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                         setupSSHKeys()
 
                         // Build Docker image with proper tagging
-                        AIRGAP_PIPELINE.buildDockerImage(env.IMAGE_NAME)
+                        AIRGAP_PIPELINE.buildDockerImage(env.IMAGE_NAME ?: "rancher-airgap-${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}")
 
                         // Create shared volume
-                        AIRGAP_PIPELINE.createSharedVolume(env.VALIDATION_VOLUME)
+                        AIRGAP_PIPELINE.createSharedVolume(env.VALIDATION_VOLUME ?: "AnsibleAirgapSharedVolume-${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}")
                     }
 
                     AIRGAP_PIPELINE.logInfo('Environment configuration completed')
@@ -294,6 +312,11 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                         props.each { key, value ->
                             env[key] = value
                         }
+                        echo "Environment variables restored in Infrastructure Deployment stage:"
+                        echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
+                        echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
+                        echo "IMAGE_NAME=${env.IMAGE_NAME}"
+                        echo "VALIDATION_VOLUME=${env.VALIDATION_VOLUME}"
                     }
                     
                     AIRGAP_PIPELINE.logInfo('Deploying infrastructure with OpenTofu')
@@ -429,6 +452,11 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                         props.each { key, value ->
                             env[key] = value
                         }
+                        echo "Environment variables restored in Bastion Preparation stage:"
+                        echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
+                        echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
+                        echo "IMAGE_NAME=${env.IMAGE_NAME}"
+                        echo "VALIDATION_VOLUME=${env.VALIDATION_VOLUME}"
                     }
                     
                     AIRGAP_PIPELINE.logInfo('Preparing bastion host for Ansible deployment')
@@ -522,6 +550,11 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                         props.each { key, value ->
                             env[key] = value
                         }
+                        echo "Environment variables restored in Deploy with Ansible stage:"
+                        echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
+                        echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
+                        echo "IMAGE_NAME=${env.IMAGE_NAME}"
+                        echo "VALIDATION_VOLUME=${env.VALIDATION_VOLUME}"
                     }
                     
                     AIRGAP_PIPELINE.logInfo('Deploying RKE2 cluster and Rancher with optimized Ansible workflow')
@@ -609,6 +642,11 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                     props.each { key, value ->
                         env[key] = value
                     }
+                    echo "Environment variables restored in post-build cleanup:"
+                    echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
+                    echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
+                    echo "IMAGE_NAME=${env.IMAGE_NAME}"
+                    echo "VALIDATION_VOLUME=${env.VALIDATION_VOLUME}"
                 }
                 
                 AIRGAP_PIPELINE.logInfo('Starting post-build cleanup')

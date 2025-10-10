@@ -140,18 +140,26 @@ pipeline {
                     currentBuild.displayName = "#${env.BUILD_NUMBER} - ${jobShortName}"
                     
                     // Write environment variables to a file to ensure persistence
-                    writeFile file: 'pipeline-env.properties', text: """
+                    def envContent = """
 JOB_SHORT_NAME=${jobShortName}
 BUILD_CONTAINER_NAME=${jobShortName}${buildNumber}-destroy
 IMAGE_NAME=rancher-destroy-${jobShortName}${buildNumber}
 VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
 """
+                    writeFile file: 'pipeline-env.properties', text: envContent
                     
                     // Also set them in the environment
                     env.JOB_SHORT_NAME = jobShortName
                     env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}-destroy"
                     env.IMAGE_NAME = "rancher-destroy-${jobShortName}${buildNumber}"
                     env.VALIDATION_VOLUME = "DestroySharedVolume-${jobShortName}${buildNumber}"
+                    
+                    // Print environment variables for debugging
+                    echo "Environment variables set:"
+                    echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
+                    echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
+                    echo "IMAGE_NAME=${env.IMAGE_NAME}"
+                    echo "VALIDATION_VOLUME=${env.VALIDATION_VOLUME}"
  
                     AIRGAP_PIPELINE.logInfo('Initializing optimized destruction pipeline')
  
@@ -170,6 +178,11 @@ VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
                         props.each { key, value ->
                             env[key] = value
                         }
+                        echo "Environment variables restored from pipeline-env.properties:"
+                        echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
+                        echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
+                        echo "IMAGE_NAME=${env.IMAGE_NAME}"
+                        echo "VALIDATION_VOLUME=${env.VALIDATION_VOLUME}"
                     }
                     
                     AIRGAP_PIPELINE.logInfo("Pipeline initialized successfully")
@@ -235,6 +248,11 @@ VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
                         props.each { key, value ->
                             env[key] = value
                         }
+                        echo "Environment variables restored in Configure Environment stage:"
+                        echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
+                        echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
+                        echo "IMAGE_NAME=${env.IMAGE_NAME}"
+                        echo "VALIDATION_VOLUME=${env.VALIDATION_VOLUME}"
                     }
                     
                     AIRGAP_PIPELINE.logInfo('Configuring destruction environment')
@@ -270,6 +288,11 @@ VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
                         props.each { key, value ->
                             env[key] = value
                         }
+                        echo "Environment variables restored in Infrastructure Destruction stage:"
+                        echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
+                        echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
+                        echo "IMAGE_NAME=${env.IMAGE_NAME}"
+                        echo "VALIDATION_VOLUME=${env.VALIDATION_VOLUME}"
                     }
                     
                     AIRGAP_PIPELINE.logInfo('Performing optimized infrastructure destruction with OpenTofu')
@@ -433,6 +456,11 @@ VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
                         props.each { key, value ->
                             env[key] = value
                         }
+                        echo "Environment variables restored in S3 Cleanup stage:"
+                        echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
+                        echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
+                        echo "IMAGE_NAME=${env.IMAGE_NAME}"
+                        echo "VALIDATION_VOLUME=${env.VALIDATION_VOLUME}"
                     }
                     
                     AIRGAP_PIPELINE.logInfo('Cleaning up S3 state files')
@@ -477,6 +505,11 @@ VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
                     props.each { key, value ->
                         env[key] = value
                     }
+                    echo "Environment variables restored in post-build cleanup:"
+                    echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
+                    echo "BUILD_CONTAINER_NAME=${env.BUILD_CONTAINER_NAME}"
+                    echo "IMAGE_NAME=${env.IMAGE_NAME}"
+                    echo "VALIDATION_VOLUME=${env.VALIDATION_VOLUME}"
                 }
                 
                 AIRGAP_PIPELINE.logInfo('Starting post-destruction cleanup')

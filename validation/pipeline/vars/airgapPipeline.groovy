@@ -277,10 +277,16 @@ def executeScriptInContainer(imageName, containerName, volumeName, scriptContent
     def scriptFile = "docker-script-${timestamp}.sh"
     def credentialEnvFile = null
     
-    // Ensure parameters are not null
-    imageName = imageName ?: 'unknown'
-    containerName = containerName ?: 'unknown'
-    volumeName = volumeName ?: 'unknown'
+    // Ensure parameters are not null with fallbacks
+    imageName = imageName ?: env.IMAGE_NAME ?: 'unknown'
+    containerName = containerName ?: env.BUILD_CONTAINER_NAME ?: 'unknown'
+    volumeName = volumeName ?: env.VALIDATION_VOLUME ?: 'unknown'
+    
+    // Log the parameters for debugging
+    logInfo("Container execution parameters:")
+    logInfo("  Image name: ${imageName}")
+    logInfo("  Container name: ${actualContainerName}")
+    logInfo("  Volume name: ${volumeName}")
     
     writeFile file: scriptFile, text: scriptContent
     
@@ -465,20 +471,27 @@ private def buildFallbackDockerCommand(scriptFile, extraEnv = [:]) {
     def directEnvVars = buildDirectEnvironmentVariables()
     def explicitEnvVars = buildEnvironmentVariables(extraEnv)
     
+    // Get environment variables with fallbacks
+    def validationVolume = env.VALIDATION_VOLUME ?: 'unknown'
+    def buildContainerName = env.BUILD_CONTAINER_NAME ?: 'unknown'
+    def imageName = env.IMAGE_NAME ?: 'unknown'
+    def tfWorkspace = env.TF_WORKSPACE ?: 'unknown'
+    def terraformVarsFilename = env.TERRAFORM_VARS_FILENAME ?: 'unknown'
+    
     // Build similar command structure as primary
     // This would need to be implemented based on the specific requirements
     // For now, return a simplified version
     return """
         docker run --rm \\
-            -v ${env.VALIDATION_VOLUME}:/root \\
+            -v ${validationVolume}:/root \\
             -v ${pwd()}/${scriptFile}:/tmp/script.sh \\
-            --name ${env.BUILD_CONTAINER_NAME}-fallback \\
+            --name ${buildContainerName}-fallback \\
             -e QA_INFRA_WORK_PATH=/root/go/src/github.com/rancher/qa-infra-automation \\
-            -e TF_WORKSPACE="${env.TF_WORKSPACE}" \\
-            -e TERRAFORM_VARS_FILENAME="${env.TERRAFORM_VARS_FILENAME}" \\
+            -e TF_WORKSPACE="${tfWorkspace}" \\
+            -e TERRAFORM_VARS_FILENAME="${terraformVarsFilename}" \\
             ${directEnvVars} \\
             ${explicitEnvVars} \\
-            "${env.IMAGE_NAME.trim()}" \\
+            "${imageName.trim()}" \\
             /bin/bash /tmp/script.sh
     """
 }
@@ -737,31 +750,36 @@ def generateEnvironmentFile(env, excludeCredentials = true) {
 def cleanupContainersAndVolumes(buildContainerName, imageName, validationVolume) {
     logInfo('Cleaning up Docker containers and volumes')
     
+    // Get environment variables with fallbacks
+    def actualBuildContainerName = buildContainerName ?: env.BUILD_CONTAINER_NAME ?: 'unknown'
+    def actualImageName = imageName ?: env.IMAGE_NAME ?: 'unknown'
+    def actualValidationVolume = validationVolume ?: env.VALIDATION_VOLUME ?: 'unknown'
+    
     try {
         sh """
             # Stop and remove any containers with our naming pattern
-            if docker ps -aq --filter "name=${buildContainerName}" | grep -q .; then
-                docker ps -aq --filter "name=${buildContainerName}" | xargs -r docker stop || true
-                docker ps -aq --filter "name=${buildContainerName}" | xargs -r docker rm -v || true
-                echo "Stopped and removed containers for ${buildContainerName}"
+            if docker ps -aq --filter "name=${actualBuildContainerName}" | grep -q .; then
+                docker ps -aq --filter "name=${actualBuildContainerName}" | xargs -r docker stop || true
+                docker ps -aq --filter "name=${actualBuildContainerName}" | xargs -r docker rm -v || true
+                echo "Stopped and removed containers for ${actualBuildContainerName}"
             else
-                echo "No containers found for ${buildContainerName}"
+                echo "No containers found for ${actualBuildContainerName}"
             fi
             
             # Remove the Docker image if it exists
-            if docker images -q ${imageName} | grep -q .; then
-                docker rmi -f ${imageName} || true
-                echo "Removed Docker image ${imageName}"
+            if docker images -q ${actualImageName} | grep -q .; then
+                docker rmi -f ${actualImageName} || true
+                echo "Removed Docker image ${actualImageName}"
             else
-                echo "Docker image ${imageName} not found or already removed"
+                echo "Docker image ${actualImageName} not found or already removed"
             fi
             
             # Remove the shared volume if it exists
-            if docker volume ls -q | grep -q "^${validationVolume}\$"; then
-                docker volume rm -f ${validationVolume} || true
-                echo "Removed Docker volume ${validationVolume}"
+            if docker volume ls -q | grep -q "^${actualValidationVolume}\$"; then
+                docker volume rm -f ${actualValidationVolume} || true
+                echo "Removed Docker volume ${actualValidationVolume}"
             else
-                echo "Docker volume ${validationVolume} not found or already removed"
+                echo "Docker volume ${actualValidationVolume} not found or already removed"
             fi
             
             # Clean up any dangling images and volumes
