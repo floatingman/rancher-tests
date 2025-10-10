@@ -519,6 +519,8 @@ pipeline {
     post {
         always {
             script {
+                // Reload shared library to ensure it's accessible in post section
+                def AIRGAP_PIPELINE = load 'validation/pipeline/vars/airgapPipeline.groovy'
                 AIRGAP_PIPELINE.logInfo('Starting post-build cleanup')
 
                 // Archive important artifacts (excluding sensitive tfstate and tfvars files)
@@ -556,6 +558,8 @@ pipeline {
 
         success {
             script {
+                // Reload shared library to ensure it's accessible in post section
+                def AIRGAP_PIPELINE = load 'validation/pipeline/vars/airgapPipeline.groovy'
                 AIRGAP_PIPELINE.logInfo('Optimized pipeline completed successfully')
                 AIRGAP_PIPELINE.sendSlackNotification([
                     color: 'good',
@@ -566,6 +570,8 @@ pipeline {
 
         failure {
             script {
+                // Reload shared library to ensure it's accessible in post section
+                def AIRGAP_PIPELINE = load 'validation/pipeline/vars/airgapPipeline.groovy'
                 AIRGAP_PIPELINE.logError('Optimized pipeline failed')
                 AIRGAP_PIPELINE.sendSlackNotification([
                     color: 'danger',
@@ -576,6 +582,8 @@ pipeline {
 
         unstable {
             script {
+                // Reload shared library to ensure it's accessible in post section
+                def AIRGAP_PIPELINE = load 'validation/pipeline/vars/airgapPipeline.groovy'
                 AIRGAP_PIPELINE.logWarning('Optimized pipeline completed with warnings')
                 AIRGAP_PIPELINE.sendSlackNotification([
                     color: 'warning',
