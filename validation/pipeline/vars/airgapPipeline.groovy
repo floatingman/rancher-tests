@@ -228,7 +228,8 @@ Additionally searched workspace with 'find' but found no Dockerfile matching *to
         }
     }
 
-    def configureScript = "${new File(dockerfilePath).parent}/configure.sh"
+    def dockerDir = dockerfilePath.contains('/') ? dockerfilePath.substring(0, dockerfilePath.lastIndexOf('/')) : '.'
+    def configureScript = "${dockerDir}/configure.sh"
     if (!fileExists(configureScript)) {
         configureScript = './tests/validation/configure.sh'
         if (!fileExists(configureScript)) {
