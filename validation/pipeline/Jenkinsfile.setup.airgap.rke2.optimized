@@ -463,7 +463,15 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                                 initScript,
                                 [
                                     TF_WORKSPACE: env.TF_WORKSPACE,
-                                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME
+                                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME,
+                                    S3_BUCKET_NAME: env.S3_BUCKET_NAME,
+                                    S3_REGION: env.S3_REGION,
+                                    S3_KEY_PREFIX: env.S3_KEY_PREFIX,
+                                    AWS_REGION: env.AWS_REGION,
+                                    AWS_IAM_PROFILE: env.AWS_IAM_PROFILE,
+                                    AWS_VPC: env.AWS_VPC,
+                                    AWS_SECURITY_GROUPS: env.AWS_SECURITY_GROUPS,
+                                    HOSTNAME_PREFIX: env.HOSTNAME_PREFIX
                                 ],
                                 env.ENV_FILE
                             )
@@ -483,7 +491,15 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                                 workspaceScript,
                                 [
                                     TF_WORKSPACE: env.TF_WORKSPACE,
-                                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME
+                                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME,
+                                    S3_BUCKET_NAME: env.S3_BUCKET_NAME,
+                                    S3_REGION: env.S3_REGION,
+                                    S3_KEY_PREFIX: env.S3_KEY_PREFIX,
+                                    AWS_REGION: env.AWS_REGION,
+                                    AWS_IAM_PROFILE: env.AWS_IAM_PROFILE,
+                                    AWS_VPC: env.AWS_VPC,
+                                    AWS_SECURITY_GROUPS: env.AWS_SECURITY_GROUPS,
+                                    HOSTNAME_PREFIX: env.HOSTNAME_PREFIX
                                 ],
                                 env.ENV_FILE
                             )
@@ -503,7 +519,15 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                                 planScript,
                                 [
                                     TF_WORKSPACE: env.TF_WORKSPACE,
-                                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME
+                                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME,
+                                    S3_BUCKET_NAME: env.S3_BUCKET_NAME,
+                                    S3_REGION: env.S3_REGION,
+                                    S3_KEY_PREFIX: env.S3_KEY_PREFIX,
+                                    AWS_REGION: env.AWS_REGION,
+                                    AWS_IAM_PROFILE: env.AWS_IAM_PROFILE,
+                                    AWS_VPC: env.AWS_VPC,
+                                    AWS_SECURITY_GROUPS: env.AWS_SECURITY_GROUPS,
+                                    HOSTNAME_PREFIX: env.HOSTNAME_PREFIX
                                 ],
                                 env.ENV_FILE
                             )
@@ -523,7 +547,15 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                                 applyScript,
                                 [
                                     TF_WORKSPACE: env.TF_WORKSPACE,
-                                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME
+                                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME,
+                                    S3_BUCKET_NAME: env.S3_BUCKET_NAME,
+                                    S3_REGION: env.S3_REGION,
+                                    S3_KEY_PREFIX: env.S3_KEY_PREFIX,
+                                    AWS_REGION: env.AWS_REGION,
+                                    AWS_IAM_PROFILE: env.AWS_IAM_PROFILE,
+                                    AWS_VPC: env.AWS_VPC,
+                                    AWS_SECURITY_GROUPS: env.AWS_SECURITY_GROUPS,
+                                    HOSTNAME_PREFIX: env.HOSTNAME_PREFIX
                                 ],
                                 env.ENV_FILE
                             )
@@ -651,7 +683,15 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                                 bastionScript,
                                 [
                                     TF_WORKSPACE: env.TF_WORKSPACE,
-                                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME
+                                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME,
+                                    S3_BUCKET_NAME: env.S3_BUCKET_NAME,
+                                    S3_REGION: env.S3_REGION,
+                                    S3_KEY_PREFIX: env.S3_KEY_PREFIX,
+                                    AWS_REGION: env.AWS_REGION,
+                                    AWS_IAM_PROFILE: env.AWS_IAM_PROFILE,
+                                    AWS_VPC: env.AWS_VPC,
+                                    AWS_SECURITY_GROUPS: env.AWS_SECURITY_GROUPS,
+                                    HOSTNAME_PREFIX: env.HOSTNAME_PREFIX
                                 ],
                                 env.ENV_FILE
                             )
@@ -1192,7 +1232,15 @@ def handleTimeoutFailure() {
                 cleanupScript,
                 [
                     TF_WORKSPACE: env.TF_WORKSPACE,
-                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME
+                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME,
+                    S3_BUCKET_NAME: env.S3_BUCKET_NAME,
+                    S3_REGION: env.S3_REGION,
+                    S3_KEY_PREFIX: env.S3_KEY_PREFIX,
+                    AWS_REGION: env.AWS_REGION,
+                    AWS_IAM_PROFILE: env.AWS_IAM_PROFILE,
+                    AWS_VPC: env.AWS_VPC,
+                    AWS_SECURITY_GROUPS: env.AWS_SECURITY_GROUPS,
+                    HOSTNAME_PREFIX: env.HOSTNAME_PREFIX
                 ],
                 env.ENV_FILE
             )
@@ -1232,7 +1280,15 @@ def handleDeploymentFailure() {
                 cleanupScript,
                 [
                     TF_WORKSPACE: env.TF_WORKSPACE,
-                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME
+                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME,
+                    S3_BUCKET_NAME: env.S3_BUCKET_NAME,
+                    S3_REGION: env.S3_REGION,
+                    S3_KEY_PREFIX: env.S3_KEY_PREFIX,
+                    AWS_REGION: env.AWS_REGION,
+                    AWS_IAM_PROFILE: env.AWS_IAM_PROFILE,
+                    AWS_VPC: env.AWS_VPC,
+                    AWS_SECURITY_GROUPS: env.AWS_SECURITY_GROUPS,
+                    HOSTNAME_PREFIX: env.HOSTNAME_PREFIX
                 ],
                 env.ENV_FILE
             )
@@ -1272,7 +1328,15 @@ def handleAnsibleDeploymentFailure() {
                 cleanupScript,
                 [
                     TF_WORKSPACE: env.TF_WORKSPACE,
-                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME
+                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME,
+                    S3_BUCKET_NAME: env.S3_BUCKET_NAME,
+                    S3_REGION: env.S3_REGION,
+                    S3_KEY_PREFIX: env.S3_KEY_PREFIX,
+                    AWS_REGION: env.AWS_REGION,
+                    AWS_IAM_PROFILE: env.AWS_IAM_PROFILE,
+                    AWS_VPC: env.AWS_VPC,
+                    AWS_SECURITY_GROUPS: env.AWS_SECURITY_GROUPS,
+                    HOSTNAME_PREFIX: env.HOSTNAME_PREFIX
                 ],
                 env.ENV_FILE
             )
