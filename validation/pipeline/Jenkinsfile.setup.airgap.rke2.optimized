@@ -150,10 +150,13 @@ pipeline {
                 script {
                     ensureAirgapPipeline()
  
-                    env.JOB_SHORT_NAME = AIRGAP_PIPELINE.getShortJobName()
-                    env.BUILD_CONTAINER_NAME = "${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}"
-                    env.IMAGE_NAME = "rancher-airgap-${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}"
-                    env.VALIDATION_VOLUME = "AnsibleAirgapSharedVolume-${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}"
+                    def jobShortName = AIRGAP_PIPELINE.getShortJobName()
+                    def buildNumber = env.BUILD_NUMBER ?: 'unknown'
+                    
+                    env.JOB_SHORT_NAME = jobShortName
+                    env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}"
+                    env.IMAGE_NAME = "rancher-airgap-${jobShortName}${buildNumber}"
+                    env.VALIDATION_VOLUME = "AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}"
  
                     AIRGAP_PIPELINE.logInfo('Initializing optimized pipeline')
  
