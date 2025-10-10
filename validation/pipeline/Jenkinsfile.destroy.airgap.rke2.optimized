@@ -1,0 +1,842 @@
+#!/usr/bin/env groovy
+
+import groovy.transform.Field
+import org.jenkinsci.plugins.workflow.steps.MissingContextVariableException
+
+/**
+ * Optimized Airgap RKE2 Destruction Jenkinsfile
+ *
+ * This pipeline is optimized for performance and maintainability by:
+ * 1. Using shared Groovy helper library (airgapPipeline.groovy)
+ * 2. Consolidating infrastructure destruction into a single optimized stage
+ * 3. Implementing proper cleanup and artifact management
+ * 4. Reducing Docker container overhead
+ * 5. Improving error handling and recovery
+ */
+ 
+@Field def AIRGAP_PIPELINE = null
+
+def ensureAirgapPipeline() {
+    if (AIRGAP_PIPELINE != null) {
+        return AIRGAP_PIPELINE
+    }
+    try {
+        AIRGAP_PIPELINE = load 'validation/pipeline/vars/airgapPipeline.groovy'
+    } catch (MissingContextVariableException ex) {
+        node {
+            AIRGAP_PIPELINE = load 'validation/pipeline/vars/airgapPipeline.groovy'
+        }
+    }
+    return AIRGAP_PIPELINE
+}
+ 
+pipeline {
+    agent any
+
+    // Global pipeline options
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 2, unit: 'HOURS')
+        timestamps()
+        ansiColor('xterm')
+        skipStagesAfterUnstable()
+    }
+
+    parameters {
+        string(
+            name: 'TARGET_WORKSPACE',
+            defaultValue: '',
+            description: 'Terraform workspace to destroy (e.g., jenkins_airgap_ansible_workspace_123)'
+        )
+        string(
+            name: 'RANCHER_TEST_REPO_URL',
+            defaultValue: 'https://github.com/rancher/tests',
+            description: 'URL of rancher/tests repository'
+        )
+        string(
+            name: 'RANCHER_TEST_REPO_BRANCH',
+            defaultValue: 'main',
+            description: 'Branch of rancher/tests repository'
+        )
+        string(
+            name: 'QA_INFRA_REPO_URL',
+            defaultValue: 'https://github.com/rancher/qa-infra-automation',
+            description: 'URL of qa-infra-automation repository'
+        )
+        string(
+            name: 'QA_INFRA_REPO_BRANCH',
+            defaultValue: 'main',
+            description: 'Branch of qa-infra-automation repository'
+        )
+        string(
+            name: 'S3_BUCKET_NAME',
+            defaultValue: 'jenkins-terraform-state-storage',
+            description: 'S3 bucket name where Terraform state is stored'
+        )
+        string(
+            name: 'S3_KEY_PREFIX',
+            defaultValue: 'jenkins-airgap-rke2/terraform.tfstate',
+            description: 'S3 key prefix for the Terraform state files'
+        )
+        string(
+            name: 'S3_REGION',
+            defaultValue: 'us-east-2',
+            description: 'AWS region where the S3 bucket is located'
+        )
+        booleanParam(
+            name: 'CLEANUP_S3_STATE',
+            defaultValue: true,
+            description: 'Clean up S3 state files after successful destruction'
+        )
+        booleanParam(
+            name: 'FORCE_DESTROY',
+            defaultValue: false,
+            description: 'Force destroy without additional confirmations'
+        )
+    }
+
+    environment {
+        // Default S3 configuration - use parameters with fallbacks
+        S3_BUCKET_NAME = "${params.S3_BUCKET_NAME ?: 'jenkins-terraform-state-storage'}"
+        S3_KEY_PREFIX = "${params.S3_KEY_PREFIX ?: 'jenkins-airgap-rke2/terraform.tfstate'}"
+        S3_REGION = "${params.S3_REGION ?: 'us-east-2'}"
+        AWS_REGION = "${params.S3_REGION ?: 'us-east-2'}"
+
+        // Repository configurations
+        RANCHER_TEST_REPO_URL = "${params.RANCHER_TEST_REPO_URL ?: 'https://github.com/rancher/tests'}"
+        QA_INFRA_REPO = "${params.QA_INFRA_REPO_URL ?: 'https://github.com/rancher/qa-infra-automation'}"
+        QA_INFRA_WORK_PATH = '/root/go/src/github.com/rancher/qa-infra-automation'
+        ROOT_PATH = '/root/go/src/github.com/rancher/tests/'
+
+        // Computed values
+        JOB_SHORT_NAME = ""
+        BUILD_CONTAINER_NAME = ""
+        IMAGE_NAME = ""
+        VALIDATION_VOLUME = ""
+
+        // Target workspace from parameters
+        TARGET_WORKSPACE = "${params.TARGET_WORKSPACE}"
+        TF_WORKSPACE = "${params.TARGET_WORKSPACE}"
+
+        // Timeouts (in minutes)
+        TERRAFORM_TIMEOUT = '30'
+
+        // Configuration files
+        TERRAFORM_VARS_FILENAME = 'cluster.tfvars'
+        TERRAFORM_BACKEND_VARS_FILENAME = 'backend.tfvars'
+        ENV_FILE = '.env'
+    }
+
+    stages {
+        stage('Initialize Pipeline') {
+            steps {
+                script {
+                    ensureAirgapPipeline()
+ 
+                    env.JOB_SHORT_NAME = AIRGAP_PIPELINE.getShortJobName()
+                    env.BUILD_CONTAINER_NAME = "${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}-destroy"
+                    env.IMAGE_NAME = "rancher-destroy-${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}"
+                    env.VALIDATION_VOLUME = "DestroySharedVolume-${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}"
+ 
+                    AIRGAP_PIPELINE.logInfo('Initializing optimized destruction pipeline')
+ 
+                    // Validate parameters
+                    validateParameters()
+ 
+                    // Clean workspace
+                    deleteDir()
+ 
+                    // Setup dynamic environment
+                    setupDynamicEnvironment()
+                    
+                    AIRGAP_PIPELINE.logInfo("Pipeline initialized successfully")
+                    AIRGAP_PIPELINE.logInfo("Build container: ${env.BUILD_CONTAINER_NAME}")
+                    AIRGAP_PIPELINE.logInfo("Docker image: ${env.IMAGE_NAME}")
+                    AIRGAP_PIPELINE.logInfo("Volume: ${env.VALIDATION_VOLUME}")
+                    AIRGAP_PIPELINE.logInfo("Target workspace: ${env.TARGET_WORKSPACE}")
+                }
+            }
+        }
+
+        stage('Checkout Repositories') {
+            steps {
+                script {
+                    ensureAirgapPipeline()
+                    AIRGAP_PIPELINE.logInfo('Checking out source repositories')
+
+                    // Checkout Rancher Tests Repository
+                    dir('./tests') {
+                        AIRGAP_PIPELINE.logInfo("Cloning rancher tests repository from ${env.RANCHER_TEST_REPO_URL}")
+                        checkout([
+                            $class: 'GitSCM',
+                            branches: [[name: "*/${params.RANCHER_TEST_REPO_BRANCH}"]],
+                            extensions: [
+                                [$class: 'CleanCheckout'],
+                                [$class: 'CloneOption', depth: 1, shallow: true]
+                            ],
+                            userRemoteConfigs: [[
+                                url: env.RANCHER_TEST_REPO_URL,
+                            ]]
+                        ])
+                    }
+
+                    // Checkout QA Infrastructure Repository
+                    dir('./qa-infra-automation') {
+                        AIRGAP_PIPELINE.logInfo("Cloning qa-infra-automation repository from ${env.QA_INFRA_REPO}")
+                        checkout([
+                            $class: 'GitSCM',
+                            branches: [[name: "*/${params.QA_INFRA_REPO_BRANCH}"]],
+                            extensions: [
+                                [$class: 'CleanCheckout'],
+                                [$class: 'CloneOption', depth: 1, shallow: true]
+                            ],
+                            userRemoteConfigs: [[
+                                url: env.QA_INFRA_REPO,
+                            ]]
+                        ])
+                    }
+
+                    AIRGAP_PIPELINE.logInfo('Repository checkout completed successfully')
+                }
+            }
+        }
+
+        stage('Configure Environment') {
+            steps {
+                script {
+                    ensureAirgapPipeline()
+                    AIRGAP_PIPELINE.logInfo('Configuring destruction environment')
+
+                    // Configure credentials and environment files
+                    withCredentials(AIRGAP_PIPELINE.getCommonCredentialsList()) {
+                        // Generate environment file
+                        generateDestructionEnvironmentFile()
+
+                        // Setup SSH keys securely
+                        setupSSHKeys()
+
+                        // Build Docker image with proper tagging
+                        AIRGAP_PIPELINE.buildDockerImage(env.IMAGE_NAME)
+
+                        // Create shared volume
+                        AIRGAP_PIPELINE.createSharedVolume(env.VALIDATION_VOLUME)
+                    }
+
+                    AIRGAP_PIPELINE.logInfo('Environment configuration completed')
+                }
+            }
+        }
+
+        stage('Infrastructure Destruction') {
+            steps {
+                script {
+                    ensureAirgapPipeline()
+                    AIRGAP_PIPELINE.logInfo('Performing optimized infrastructure destruction with OpenTofu')
+
+                    // Configuration validation
+                    def requiredVars = [
+                        'QA_INFRA_WORK_PATH',
+                        'TF_WORKSPACE',
+                        'TERRAFORM_VARS_FILENAME',
+                        'TERRAFORM_BACKEND_VARS_FILENAME',
+                        'TERRAFORM_TIMEOUT'
+                    ]
+                    AIRGAP_PIPELINE.validateRequiredVariables(requiredVars, env)
+
+                    // Enhanced timeout with reasonable defaults
+                    def timeoutMinutes = env.TERRAFORM_TIMEOUT ?
+                        Integer.parseInt(env.TERRAFORM_TIMEOUT) : 30
+
+                    timeout(time: timeoutMinutes, unit: 'MINUTES') {
+                        try {
+                            // Download configuration from S3
+                            def downloadScript = '''
+                                #!/bin/bash
+                                set -e
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common-infra.sh
+                                init_infra_environment
+                                execute_terraform_operation download-config
+                            '''
+                            AIRGAP_PIPELINE.executeScriptInContainer(
+                                env.IMAGE_NAME,
+                                env.BUILD_CONTAINER_NAME,
+                                env.VALIDATION_VOLUME,
+                                downloadScript,
+                                [:],
+                                env.ENV_FILE
+                            )
+
+                            // Initialize OpenTofu
+                            def initScript = '''
+                                #!/bin/bash
+                                set -e
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common-infra.sh
+                                init_infra_environment
+                                execute_terraform_operation init
+                            '''
+                            AIRGAP_PIPELINE.executeScriptInContainer(
+                                env.IMAGE_NAME,
+                                env.BUILD_CONTAINER_NAME,
+                                env.VALIDATION_VOLUME,
+                                initScript,
+                                [:],
+                                env.ENV_FILE
+                            )
+
+                            // Validate infrastructure prerequisites
+                            def validateScript = '''
+                                #!/bin/bash
+                                set -e
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common-infra.sh
+                                init_infra_environment
+                                execute_terraform_operation validate-prerequisites
+                            '''
+                            AIRGAP_PIPELINE.executeScriptInContainer(
+                                env.IMAGE_NAME,
+                                env.BUILD_CONTAINER_NAME,
+                                env.VALIDATION_VOLUME,
+                                validateScript,
+                                [:],
+                                env.ENV_FILE
+                            )
+
+                            // Destroy infrastructure
+                            def destroyScript = '''
+                                #!/bin/bash
+                                set -e
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common-infra.sh
+                                init_infra_environment
+                                execute_terraform_operation destroy
+                            '''
+                            AIRGAP_PIPELINE.executeScriptInContainer(
+                                env.IMAGE_NAME,
+                                env.BUILD_CONTAINER_NAME,
+                                env.VALIDATION_VOLUME,
+                                destroyScript,
+                                ['FORCE_DESTROY': params.FORCE_DESTROY.toString()],
+                                env.ENV_FILE
+                            )
+
+                            // Delete workspace after successful destruction
+                            def deleteWorkspaceScript = '''
+                                #!/bin/bash
+                                set -e
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common-infra.sh
+                                init_infra_environment
+                                execute_terraform_operation delete-workspace
+                            '''
+                            AIRGAP_PIPELINE.executeScriptInContainer(
+                                env.IMAGE_NAME,
+                                env.BUILD_CONTAINER_NAME,
+                                env.VALIDATION_VOLUME,
+                                deleteWorkspaceScript,
+                                [:],
+                                env.ENV_FILE
+                            )
+
+                            // Validate post-destruction state
+                            def validateStateScript = '''
+                                #!/bin/bash
+                                set -e
+                                source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common-infra.sh
+                                init_infra_environment
+                                execute_terraform_operation validate-state
+                            '''
+                            AIRGAP_PIPELINE.executeScriptInContainer(
+                                env.IMAGE_NAME,
+                                env.BUILD_CONTAINER_NAME,
+                                env.VALIDATION_VOLUME,
+                                validateStateScript,
+                                [:],
+                                env.ENV_FILE
+                            )
+
+                            AIRGAP_PIPELINE.logInfo('Infrastructure destruction completed successfully')
+                        } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+                            AIRGAP_PIPELINE.logError("Infrastructure destruction timed out after ${timeoutMinutes} minutes")
+                            handleDestructionTimeoutFailure()
+                        } catch (Exception e) {
+                            AIRGAP_PIPELINE.logError("Infrastructure destruction failed: ${e.message}")
+                            handleDestructionFailure()
+                        }
+                    }
+                }
+            }
+            post {
+                success {
+                    script {
+                        // Extract artifacts from Docker volume
+                        extractDestructionArtifacts()
+                    }
+                }
+                failure {
+                    script {
+                        AIRGAP_PIPELINE.logError('Infrastructure destruction failed')
+                        archiveDestructionFailureArtifacts()
+                    }
+                }
+            }
+        }
+
+        stage('S3 Cleanup') {
+            when {
+                expression { params.CLEANUP_S3_STATE }
+            }
+            steps {
+                script {
+                    ensureAirgapPipeline()
+                    AIRGAP_PIPELINE.logInfo('Cleaning up S3 state files')
+
+                    try {
+                        // Validate required S3 variables are available
+                        def requiredS3Vars = ['S3_BUCKET_NAME', 'S3_REGION', 'S3_KEY_PREFIX', 'TF_WORKSPACE']
+                        AIRGAP_PIPELINE.validateRequiredVariables(requiredS3Vars, env)
+                        
+                        AIRGAP_PIPELINE.logInfo("Preparing to clean up S3 directory: env:/${env.TF_WORKSPACE}")
+                        AIRGAP_PIPELINE.logInfo("S3 Bucket: ${env.S3_BUCKET_NAME}")
+                        AIRGAP_PIPELINE.logInfo("S3 Region: ${env.S3_REGION}")
+                        AIRGAP_PIPELINE.logInfo("Terraform state file: ${env.S3_KEY_PREFIX}")
+                        
+                        // Execute S3 cleanup using the shared library
+                        AIRGAP_PIPELINE.cleanupS3Workspace(env.S3_BUCKET_NAME, env.S3_REGION, env.S3_KEY_PREFIX, env.TF_WORKSPACE)
+                        
+                        AIRGAP_PIPELINE.logInfo('S3 cleanup completed successfully')
+                        
+                    } catch (Exception e) {
+                        AIRGAP_PIPELINE.logError("S3 cleanup failed: ${e.message}")
+                        AIRGAP_PIPELINE.logWarning('Manual cleanup may be required for S3 resources')
+                        // Don't fail the build, just log the warning
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                ensureAirgapPipeline()
+                if (AIRGAP_PIPELINE == null) {
+                    echo '[WARNING] Airgap pipeline library unavailable during post-build cleanup'
+                    return
+                }
+                AIRGAP_PIPELINE.logInfo('Starting post-destruction cleanup')
+
+                // Archive important artifacts
+                archiveBuildArtifacts([
+                    'destruction-plan.txt',
+                    'destruction-summary.json',
+                    'destruction-logs.txt',
+                    'workspace-list.txt',
+                    'remaining-resources.txt'
+                ])
+
+                // Always cleanup containers and volumes
+                try {
+                    node {
+                        AIRGAP_PIPELINE.cleanupContainersAndVolumes(
+                            env.BUILD_CONTAINER_NAME,
+                            env.IMAGE_NAME,
+                            env.VALIDATION_VOLUME
+                        )
+                    }
+                } catch (Exception e) {
+                    AIRGAP_PIPELINE.logError("Node context not available for cleanup: ${e.message}")
+                    try {
+                        AIRGAP_PIPELINE.cleanupContainersAndVolumes(
+                            env.BUILD_CONTAINER_NAME,
+                            env.IMAGE_NAME,
+                            env.VALIDATION_VOLUME
+                        )
+                    } catch (Exception cleanupException) {
+                        AIRGAP_PIPELINE.logError("Cleanup failed: ${cleanupException.message}")
+                    }
+                }
+            }
+        }
+
+        success {
+            script {
+                ensureAirgapPipeline()
+                if (AIRGAP_PIPELINE == null) {
+                    echo '[WARNING] Airgap pipeline library unavailable for success notification'
+                    return
+                }
+                AIRGAP_PIPELINE.logInfo('Optimized destruction pipeline completed successfully')
+                AIRGAP_PIPELINE.sendSlackNotification([
+                    color: 'good',
+                    message: "✅ Optimized Airgap RKE2 destruction succeeded for ${env.JOB_NAME} #${env.BUILD_NUMBER} (workspace: ${env.TARGET_WORKSPACE})"
+                ])
+            }
+        }
+
+        failure {
+            script {
+                ensureAirgapPipeline()
+                if (AIRGAP_PIPELINE == null) {
+                    echo '[WARNING] Airgap pipeline library unavailable for failure notification'
+                    return
+                }
+                AIRGAP_PIPELINE.logError('Optimized destruction pipeline failed')
+                AIRGAP_PIPELINE.sendSlackNotification([
+                    color: 'danger',
+                    message: "❌ Optimized Airgap RKE2 destruction failed for ${env.JOB_NAME} #${env.BUILD_NUMBER} (workspace: ${env.TARGET_WORKSPACE})"
+                ])
+            }
+        }
+
+        unstable {
+            script {
+                ensureAirgapPipeline()
+                if (AIRGAP_PIPELINE == null) {
+                    echo '[WARNING] Airgap pipeline library unavailable for unstable notification'
+                    return
+                }
+                AIRGAP_PIPELINE.logWarning('Optimized destruction pipeline completed with warnings')
+                AIRGAP_PIPELINE.sendSlackNotification([
+                    color: 'warning',
+                    message: "⚠️ Optimized Airgap RKE2 destruction completed with warnings for ${env.JOB_NAME} #${env.BUILD_NUMBER} (workspace: ${env.TARGET_WORKSPACE})"
+                ])
+            }
+        }
+    }
+}
+
+// ========================================
+// HELPER FUNCTIONS
+// ========================================
+
+def validateParameters() {
+    ensureAirgapPipeline()
+    AIRGAP_PIPELINE.logInfo('Validating pipeline parameters')
+
+    def validationErrors = []
+
+    // Required parameters validation
+    if (!params.TARGET_WORKSPACE?.trim()) {
+        validationErrors.add('TARGET_WORKSPACE parameter is required for destruction')
+    }
+    if (!params.RANCHER_TEST_REPO_URL?.trim()) {
+        validationErrors.add('RANCHER_TEST_REPO_URL parameter is required')
+    }
+    if (!params.QA_INFRA_REPO_URL?.trim()) {
+        validationErrors.add('QA_INFRA_REPO_URL parameter is required')
+    }
+
+    if (validationErrors) {
+        def errorMsg = 'Parameter validation failed:\n' + validationErrors.join('\n- ')
+        AIRGAP_PIPELINE.logError(errorMsg)
+        error(errorMsg)
+    }
+
+    AIRGAP_PIPELINE.logInfo('All parameters validated successfully')
+    AIRGAP_PIPELINE.logInfo("Target workspace: ${params.TARGET_WORKSPACE}")
+}
+
+def setupDynamicEnvironment() {
+    ensureAirgapPipeline()
+    env.TERRAFORM_VARS_FILENAME = 'cluster.tfvars'
+    env.TERRAFORM_BACKEND_VARS_FILENAME = 'backend.tfvars'
+
+    AIRGAP_PIPELINE.logInfo('Dynamic environment configured')
+    AIRGAP_PIPELINE.logInfo("Terraform Vars Filename: ${env.TERRAFORM_VARS_FILENAME}")
+    AIRGAP_PIPELINE.logInfo("Terraform Backend Vars Filename: ${env.TERRAFORM_BACKEND_VARS_FILENAME}")
+}
+
+def generateDestructionEnvironmentFile() {
+    ensureAirgapPipeline()
+    AIRGAP_PIPELINE.logInfo('Generating environment file for destruction containers')
+
+    // Debug logging for S3 variables
+    AIRGAP_PIPELINE.logInfo("S3_BUCKET_NAME: '${env.S3_BUCKET_NAME}'")
+    AIRGAP_PIPELINE.logInfo("S3_KEY_PREFIX: '${env.S3_KEY_PREFIX}'")
+    AIRGAP_PIPELINE.logInfo("S3_REGION: '${env.S3_REGION}'")
+    AIRGAP_PIPELINE.logInfo("AWS_REGION: '${env.AWS_REGION}'")
+
+    // Ensure S3 variables have values by using parameter fallbacks
+    def s3BucketName = env.S3_BUCKET_NAME ?: params.S3_BUCKET_NAME ?: 'jenkins-terraform-state-storage'
+    def s3KeyPrefix = env.S3_KEY_PREFIX ?: params.S3_KEY_PREFIX ?: 'jenkins-airgap-rke2/terraform.tfstate'
+    def s3Region = env.S3_REGION ?: params.S3_REGION ?: 'us-east-2'
+    def awsRegion = env.AWS_REGION ?: params.S3_REGION ?: 'us-east-2'
+
+    AIRGAP_PIPELINE.logInfo("Using S3_BUCKET_NAME: '${s3BucketName}'")
+    AIRGAP_PIPELINE.logInfo("Using S3_KEY_PREFIX: '${s3KeyPrefix}'")
+    AIRGAP_PIPELINE.logInfo("Using S3_REGION: '${s3Region}'")
+    AIRGAP_PIPELINE.logInfo("Using AWS_REGION: '${awsRegion}'")
+
+    // Use the shared library function to generate the environment file
+    def envVars = [
+        'TARGET_WORKSPACE': env.TARGET_WORKSPACE,
+        'BUILD_NUMBER': env.BUILD_NUMBER,
+        'JOB_NAME': env.JOB_NAME,
+        'QA_INFRA_WORK_PATH': env.QA_INFRA_WORK_PATH,
+        'TERRAFORM_VARS_FILENAME': env.TERRAFORM_VARS_FILENAME,
+        'S3_BUCKET_NAME': s3BucketName,
+        'S3_KEY_PREFIX': s3KeyPrefix,
+        'S3_REGION': s3Region,
+        'AWS_REGION': awsRegion,
+        'TF_VAR_aws_region': awsRegion
+    ]
+
+    AIRGAP_PIPELINE.generateEnvironmentFileWithVars(env.ENV_FILE, envVars)
+    AIRGAP_PIPELINE.logInfo("Environment file created: ${env.ENV_FILE}")
+}
+
+def setupSSHKeys() {
+    ensureAirgapPipeline()
+    AIRGAP_PIPELINE.logInfo('Setting up SSH keys with secure handling')
+
+    // Get credentials within withCredentials block to ensure they're available
+    def awsSshPemKey = null
+    def awsSshKeyName = null
+
+    withCredentials([
+        string(credentialsId: 'AWS_SSH_PEM_KEY', variable: 'AWS_SSH_PEM_KEY'),
+        string(credentialsId: 'AWS_SSH_KEY_NAME', variable: 'AWS_SSH_KEY_NAME')
+    ]) {
+        awsSshPemKey = env.AWS_SSH_PEM_KEY
+        awsSshKeyName = env.AWS_SSH_KEY_NAME
+    }
+
+    if (awsSshPemKey && awsSshKeyName) {
+        try {
+            dir('./tests/.ssh') {
+                // Create secure directory with proper permissions
+                sh 'mkdir -p . && chmod 700 .'
+
+                def decodedKey = new String(awsSshPemKey.decodeBase64())
+
+                // Write key file securely
+                writeFile file: awsSshKeyName, text: decodedKey
+
+                // Set secure file permissions
+                sh "chmod 600 ${awsSshKeyName}"
+                sh 'chown $(whoami):$(whoami) ' + awsSshKeyName + ' 2>/dev/null || true'
+
+                // Verify key file security
+                def keyPermissions = sh(script: "ls -la ${awsSshKeyName}", returnStdout: true).trim()
+                AIRGAP_PIPELINE.logInfo("SSH key file permissions: ${keyPermissions}")
+
+                // Validate key format
+                def keyContent = sh(script: "head -1 ${awsSshKeyName}", returnStdout: true).trim()
+                if (!keyContent.startsWith('-----BEGIN') && !keyContent.startsWith('ssh-rsa') && !keyContent.startsWith('ssh-ed25519')) {
+                    AIRGAP_PIPELINE.logWarning("SSH key format validation warning - unexpected key format")
+                }
+            }
+
+            AIRGAP_PIPELINE.logInfo('SSH keys configured successfully')
+        } catch (Exception e) {
+            AIRGAP_PIPELINE.logError("SSH key setup failed: ${e.message}")
+            cleanupSSHKeys()
+            throw e
+        }
+    } else {
+        AIRGAP_PIPELINE.logWarning('SSH key configuration skipped - missing required environment variables')
+    }
+}
+
+def cleanupSSHKeys() {
+    ensureAirgapPipeline()
+    AIRGAP_PIPELINE.logInfo('Cleaning up SSH keys securely')
+
+    try {
+        // Get credentials for key name
+        withCredentials([
+            string(credentialsId: 'AWS_SSH_KEY_NAME', variable: 'AWS_SSH_KEY_NAME')
+        ]) {
+            def awsSshKeyName = env.AWS_SSH_KEY_NAME
+
+            if (awsSshKeyName) {
+                def keyPath = "./tests/.ssh/${awsSshKeyName}"
+
+                if (fileExists(keyPath)) {
+                    // Securely shred the key file if shred is available
+                    try {
+                        sh "shred -vfz -n 3 ${keyPath} 2>/dev/null || rm -f ${keyPath}"
+                        AIRGAP_PIPELINE.logInfo("SSH key securely shredded: ${keyPath}")
+                    } catch (Exception shredException) {
+                        // Fallback to secure delete
+                        sh "rm -f ${keyPath}"
+                        AIRGAP_PIPELINE.logWarning("SSH key deleted (shred unavailable): ${keyPath}")
+                    }
+                }
+
+                // Clean up any temporary SSH files
+                sh 'rm -f ./tests/.ssh/known_hosts ./tests/.ssh/config 2>/dev/null || true'
+
+                // Ensure SSH directory is secure
+                if (fileExists('./tests/.ssh')) {
+                    sh 'chmod 700 ./tests/.ssh 2>/dev/null || true'
+                }
+            }
+        }
+    } catch (Exception e) {
+        AIRGAP_PIPELINE.logWarning("SSH key cleanup encountered issues: ${e.message}")
+    }
+
+    AIRGAP_PIPELINE.logInfo('SSH key cleanup completed')
+}
+
+def handleDestructionTimeoutFailure() {
+    ensureAirgapPipeline()
+    AIRGAP_PIPELINE.logError("Infrastructure destruction timed out after ${env.TERRAFORM_TIMEOUT} minutes")
+    try {
+        archiveDestructionFailureArtifacts()
+        AIRGAP_PIPELINE.cleanupContainersAndVolumes(
+            env.BUILD_CONTAINER_NAME,
+            env.IMAGE_NAME,
+            env.VALIDATION_VOLUME
+        )
+    } catch (cleanupException) {
+        AIRGAP_PIPELINE.logError("Cleanup during timeout handling failed: ${cleanupException.message}")
+    }
+    error("Pipeline timed out after ${env.TERRAFORM_TIMEOUT} minutes")
+}
+
+def handleDestructionFailure() {
+    ensureAirgapPipeline()
+    AIRGAP_PIPELINE.logError('Infrastructure destruction failed')
+    try {
+        archiveDestructionFailureArtifacts()
+        AIRGAP_PIPELINE.cleanupContainersAndVolumes(
+            env.BUILD_CONTAINER_NAME,
+            env.IMAGE_NAME,
+            env.VALIDATION_VOLUME
+        )
+    } catch (cleanupException) {
+        AIRGAP_PIPELINE.logError("Cleanup during destruction failure handling failed: ${cleanupException.message}")
+    }
+    throw new Exception('Infrastructure destruction failed')
+}
+
+// ========================================
+// ARTIFACT MANAGEMENT FUNCTIONS
+// ========================================
+
+def archiveBuildArtifacts(artifacts) {
+    ensureAirgapPipeline()
+    try {
+        archiveArtifacts artifacts: artifacts.join(','), allowEmptyArchive: true
+        AIRGAP_PIPELINE.logInfo("Artifacts archived: ${artifacts.join(', ')}")
+    } catch (Exception e) {
+        AIRGAP_PIPELINE.logError("Failed to archive artifacts: ${e.message}")
+    }
+}
+
+def extractDestructionArtifacts() {
+    ensureAirgapPipeline()
+    AIRGAP_PIPELINE.logInfo('Extracting destruction artifacts from Docker shared volume to Jenkins workspace')
+
+    try {
+        // Create a temporary container to copy files from the shared volume
+        def timestamp = System.currentTimeMillis()
+        def extractorContainerName = "${env.BUILD_CONTAINER_NAME}-extractor-${timestamp}"
+
+        sh """
+            docker run --rm \\
+                -v ${env.VALIDATION_VOLUME}:/source \\
+                -v \$(pwd):/dest \\
+                --name ${extractorContainerName} \\
+                alpine:latest \\
+                sh -c '
+                    echo "Copying destruction artifacts from shared volume to Jenkins workspace..."
+
+                    # Copy destruction summary if exists
+                    if [ -f /source/destruction-summary.json ]; then
+                        cp /source/destruction-summary.json /dest/
+                        echo "✓ Copied destruction-summary.json"
+                    else
+                        echo "⚠ destruction-summary.json not found in shared volume"
+                    fi
+
+                    # Copy destruction plan if exists
+                    if [ -f /source/destruction-plan.txt ]; then
+                        cp /source/destruction-plan.txt /dest/
+                        echo "✓ Copied destruction-plan.txt"
+                    else
+                        echo "⚠ destruction-plan.txt not found in shared volume"
+                    fi
+
+                    # Copy destruction logs if exists
+                    if [ -f /source/destruction-logs.txt ]; then
+                        cp /source/destruction-logs.txt /dest/
+                        echo "✓ Copied destruction-logs.txt"
+                    else
+                        echo "⚠ destruction-logs.txt not found in shared volume"
+                    fi
+
+                    # Copy workspace list if exists
+                    if [ -f /source/workspace-list.txt ]; then
+                        cp /source/workspace-list.txt /dest/
+                        echo "✓ Copied workspace-list.txt"
+                    else
+                        echo "⚠ workspace-list.txt not found in shared volume"
+                    fi
+
+                    # Copy remaining resources if exists
+                    if [ -f /source/remaining-resources.txt ]; then
+                        cp /source/remaining-resources.txt /dest/
+                        echo "✓ Copied remaining-resources.txt"
+                    else
+                        echo "⚠ remaining-resources.txt not found in shared volume"
+                    fi
+
+                    echo "Destruction artifacts successfully copied to Jenkins workspace:"
+                    ls -la /dest/*.txt /dest/*.json 2>/dev/null || echo "No matching files found"
+                '
+        """
+
+        AIRGAP_PIPELINE.logInfo('Destruction artifact extraction completed successfully')
+    } catch (Exception e) {
+        AIRGAP_PIPELINE.logError("Destruction artifact extraction failed: ${e.message}")
+        // Don't fail the build, just log the issue
+        AIRGAP_PIPELINE.logWarning('Build will continue, but some artifacts may not be available for archival')
+    }
+}
+
+def archiveDestructionFailureArtifacts() {
+    ensureAirgapPipeline()
+    AIRGAP_PIPELINE.logInfo('Archiving destruction failure artifacts')
+    try {
+        // Collect debug information from container
+        def debugScript = """
+            #!/bin/bash
+            set -e
+            source /root/go/src/github.com/rancher/tests/validation/pipeline/scripts/common-infra.sh
+            init_infra_environment
+            
+            # Collect workspace information
+            tofu -chdir=tofu/aws/modules/airgap workspace list > /root/workspace-list.txt 2>&1 || echo "No workspace list available" > /root/workspace-list.txt
+            
+            # Collect remaining resources
+            tofu -chdir=tofu/aws/modules/airgap state list > /root/remaining-resources.txt 2>&1 || echo "No state available" > /root/remaining-resources.txt
+            
+            # Collect state information
+            tofu -chdir=tofu/aws/modules/airgap show > /root/terraform-show.txt 2>&1 || echo "No show information available" > /root/terraform-show.txt
+            
+            echo "Destruction failure artifact collection completed"
+        """
+
+        AIRGAP_PIPELINE.executeScriptInContainer(
+            env.IMAGE_NAME,
+            env.BUILD_CONTAINER_NAME,
+            env.VALIDATION_VOLUME,
+            debugScript,
+            [:],
+            env.ENV_FILE
+        )
+
+        // Extract the debug artifacts
+        extractDestructionArtifacts()
+
+        archiveBuildArtifacts([
+            'workspace-list.txt',
+            'remaining-resources.txt',
+            'terraform-show.txt',
+            'destruction-logs.txt'
+        ])
+        AIRGAP_PIPELINE.logInfo('Destruction failure artifacts archived successfully')
+    } catch (Exception e) {
+        AIRGAP_PIPELINE.logError("Destruction failure artifacts archival failed: ${e.message}")
+    }
+}
