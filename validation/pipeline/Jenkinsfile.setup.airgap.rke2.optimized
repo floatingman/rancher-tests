@@ -441,7 +441,10 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                                 env.BUILD_CONTAINER_NAME,
                                 env.VALIDATION_VOLUME,
                                 initScript,
-                                [TF_WORKSPACE: env.TF_WORKSPACE],
+                                [
+                                    TF_WORKSPACE: env.TF_WORKSPACE,
+                                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME
+                                ],
                                 env.ENV_FILE
                             )
 
@@ -458,7 +461,10 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                                 env.BUILD_CONTAINER_NAME,
                                 env.VALIDATION_VOLUME,
                                 workspaceScript,
-                                [TF_WORKSPACE: env.TF_WORKSPACE],
+                                [
+                                    TF_WORKSPACE: env.TF_WORKSPACE,
+                                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME
+                                ],
                                 env.ENV_FILE
                             )
 
@@ -475,7 +481,10 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                                 env.BUILD_CONTAINER_NAME,
                                 env.VALIDATION_VOLUME,
                                 planScript,
-                                [TF_WORKSPACE: env.TF_WORKSPACE],
+                                [
+                                    TF_WORKSPACE: env.TF_WORKSPACE,
+                                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME
+                                ],
                                 env.ENV_FILE
                             )
 
@@ -492,7 +501,10 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                                 env.BUILD_CONTAINER_NAME,
                                 env.VALIDATION_VOLUME,
                                 applyScript,
-                                [TF_WORKSPACE: env.TF_WORKSPACE],
+                                [
+                                    TF_WORKSPACE: env.TF_WORKSPACE,
+                                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME
+                                ],
                                 env.ENV_FILE
                             )
 
@@ -617,7 +629,10 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                                 env.BUILD_CONTAINER_NAME,
                                 env.VALIDATION_VOLUME,
                                 bastionScript,
-                                [TF_WORKSPACE: env.TF_WORKSPACE],
+                                [
+                                    TF_WORKSPACE: env.TF_WORKSPACE,
+                                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME
+                                ],
                                 env.ENV_FILE
                             )
 
@@ -1107,7 +1122,8 @@ def uploadClusterTfvarsToS3() {
         'S3_BUCKET_NAME': env.S3_BUCKET_NAME ?: 'jenkins-terraform-state-storage',
         'S3_REGION': env.S3_REGION ?: 'us-east-2',
         'S3_KEY_PREFIX': env.S3_KEY_PREFIX ?: 'jenkins-airgap-rke2/terraform.tfstate',
-        'AWS_REGION': env.AWS_REGION ?: 'us-east-2'
+        'AWS_REGION': env.AWS_REGION ?: 'us-east-2',
+        'TERRAFORM_VARS_FILENAME': env.TERRAFORM_VARS_FILENAME
     ]
 
     try {
@@ -1145,7 +1161,10 @@ def handleTimeoutFailure() {
                 env.BUILD_CONTAINER_NAME,
                 env.VALIDATION_VOLUME,
                 cleanupScript,
-                [TF_WORKSPACE: env.TF_WORKSPACE],
+                [
+                    TF_WORKSPACE: env.TF_WORKSPACE,
+                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME
+                ],
                 env.ENV_FILE
             )
             AIRGAP_PIPELINE.logInfo('Infrastructure cleanup attempted for timeout')
@@ -1182,7 +1201,10 @@ def handleDeploymentFailure() {
                 env.BUILD_CONTAINER_NAME,
                 env.VALIDATION_VOLUME,
                 cleanupScript,
-                [TF_WORKSPACE: env.TF_WORKSPACE],
+                [
+                    TF_WORKSPACE: env.TF_WORKSPACE,
+                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME
+                ],
                 env.ENV_FILE
             )
             AIRGAP_PIPELINE.logInfo('Infrastructure cleanup attempted')
@@ -1219,7 +1241,10 @@ def handleAnsibleDeploymentFailure() {
                 env.BUILD_CONTAINER_NAME,
                 env.VALIDATION_VOLUME,
                 cleanupScript,
-                [TF_WORKSPACE: env.TF_WORKSPACE],
+                [
+                    TF_WORKSPACE: env.TF_WORKSPACE,
+                    TERRAFORM_VARS_FILENAME: env.TERRAFORM_VARS_FILENAME
+                ],
                 env.ENV_FILE
             )
             AIRGAP_PIPELINE.logInfo('Infrastructure cleanup attempted')
