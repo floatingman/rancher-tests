@@ -523,21 +523,79 @@ private def buildFallbackDockerCommand(scriptFile, extraEnv = [:]) {
     // Similar to buildDockerCommand but for fallback scenario
     def directEnvVars = buildDirectEnvironmentVariables()
     def explicitEnvVars = buildEnvironmentVariables(extraEnv)
-    
-    // Get environment variables with fallbacks
-    def validationVolume = env.VALIDATION_VOLUME ?: 'unknown'
-    def buildContainerName = env.BUILD_CONTAINER_NAME ?: 'unknown'
-    def imageName = env.IMAGE_NAME ?: 'unknown'
+
+    // Restore environment variables from file if needed (same logic as main function)
+    def restoredValues = [:]
+    if (!env.IMAGE_NAME || !env.BUILD_CONTAINER_NAME || !env.VALIDATION_VOLUME) {
+        logWarning("Fallback: Environment variables missing, attempting to restore from file...")
+        if (fileExists('pipeline-env.properties')) {
+            def propsText = readFile file: 'pipeline-env.properties'
+            propsText.split('\n').each { line ->
+                if (line.trim() && line.contains('=')) {
+                    def parts = line.split('=', 2)
+                    if (parts.size() == 2) {
+                        def key = parts[0].trim()
+                        def value = parts[1].trim()
+                        logDebug("Fallback: Restoring from file: ${key} = '${value}'")
+                        restoredValues[key] = value
+                        try {
+                            env.setProperty(key, value)
+                        } catch (Exception e) {
+                            logDebug("Fallback: env.setProperty() failed for ${key}: ${e.message}")
+                        }
+                    }
+                }
+            }
+        } else {
+            logWarning("Fallback: pipeline-env.properties file not found")
+        }
+    }
+
+    // Get environment variables with proper fallbacks
+    def validationVolume = env.VALIDATION_VOLUME ?: restoredValues.VALIDATION_VOLUME ?: 'unknown'
+    def buildContainerName = env.BUILD_CONTAINER_NAME ?: restoredValues.BUILD_CONTAINER_NAME ?: 'unknown'
+    def imageName = env.IMAGE_NAME ?: restoredValues.IMAGE_NAME ?: 'unknown'
     def tfWorkspace = env.TF_WORKSPACE ?: 'unknown'
     def terraformVarsFilename = env.TERRAFORM_VARS_FILENAME ?: 'unknown'
-    
-    // Build similar command structure as primary
-    // This would need to be implemented based on the specific requirements
-    // For now, return a simplified version
+
+    logInfo("Fallback Docker command parameters:")
+    logInfo("  Image name: ${imageName}")
+    logInfo("  Container name: ${buildContainerName}-fallback")
+    logInfo("  Volume name: ${validationVolume}")
+
+    // Build similar command structure as primary but add required volume mounts
+    def volumeMounts = []
+
+    // Add shared volume
+    if (validationVolume && validationVolume != 'unknown') {
+        volumeMounts.add("-v ${validationVolume}:/root")
+    }
+
+    // Add qa-infra automation volume
+    def qaInfraPath = "${pwd()}/qa-infra-automation"
+    if (fileExists(qaInfraPath)) {
+        volumeMounts.add("-v \"${qaInfraPath}:/root/go/src/github.com/rancher/qa-infra-automation\"")
+    }
+
+    // Add validation scripts volume (for common-infra.sh and common.sh)
+    def validationScriptsPath = "${pwd()}/validation/pipeline/scripts"
+    if (fileExists(validationScriptsPath)) {
+        volumeMounts.add("-v \"${validationScriptsPath}:/root/go/src/github.com/rancher/tests/validation/pipeline/scripts\"")
+    }
+
+    // Add script file volume
+    volumeMounts.add("-v \"${pwd()}/${scriptFile}:/tmp/script.sh\"")
+
+    // Add environment file volume
+    if (env.ENV_FILE && fileExists(env.ENV_FILE)) {
+        volumeMounts.add("-v \"${pwd()}/${env.ENV_FILE}:/tmp/.env\"")
+    }
+
+    def volumeMountStr = volumeMounts.join(' \\\n            ')
+
     return """
         docker run --rm \\
-            -v ${validationVolume}:/root \\
-            -v ${pwd()}/${scriptFile}:/tmp/script.sh \\
+            ${volumeMountStr} \\
             --name ${buildContainerName}-fallback \\
             -e QA_INFRA_WORK_PATH=/root/go/src/github.com/rancher/qa-infra-automation \\
             -e TF_WORKSPACE="${tfWorkspace}" \\
