@@ -197,7 +197,7 @@ VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
                     if (fileExists('pipeline-env.properties')) {
                         def props = readProperties file: 'pipeline-env.properties'
                         props.each { key, value ->
-                            env[key] = value
+                            env.setProperty(key, value)
                         }
                         echo "Environment variables restored in Checkout Repositories stage:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
@@ -267,7 +267,7 @@ VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
                     if (fileExists('pipeline-env.properties')) {
                         def props = readProperties file: 'pipeline-env.properties'
                         props.each { key, value ->
-                            env[key] = value
+                            env.setProperty(key, value)
                         }
                         echo "Environment variables restored in Configure Environment stage:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
@@ -320,7 +320,7 @@ VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
                     if (fileExists('pipeline-env.properties')) {
                         def props = readProperties file: 'pipeline-env.properties'
                         props.each { key, value ->
-                            env[key] = value
+                            env.setProperty(key, value)
                         }
                         echo "Environment variables restored in Infrastructure Destruction stage:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
@@ -501,7 +501,7 @@ VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
                     if (fileExists('pipeline-env.properties')) {
                         def props = readProperties file: 'pipeline-env.properties'
                         props.each { key, value ->
-                            env[key] = value
+                            env.setProperty(key, value)
                         }
                         echo "Environment variables restored in S3 Cleanup stage:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
@@ -563,7 +563,7 @@ VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
                 if (fileExists('pipeline-env.properties')) {
                     def props = readProperties file: 'pipeline-env.properties'
                     props.each { key, value ->
-                        env[key] = value
+                        env.setProperty(key, value)
                     }
                     echo "Environment variables restored in post-build cleanup:"
                     echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"

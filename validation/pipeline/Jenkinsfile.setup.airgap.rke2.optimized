@@ -258,7 +258,7 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                             if (line.trim() && line.contains('=')) {
                                 def parts = line.split('=', 2)
                                 if (parts.size() == 2) {
-                                    env[parts[0].trim()] = parts[1].trim()
+                                    env.setProperty(parts[0].trim(), parts[1].trim())
                                 }
                             }
                         }
@@ -322,7 +322,7 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                             if (line.trim() && line.contains('=')) {
                                 def parts = line.split('=', 2)
                                 if (parts.size() == 2) {
-                                    env[parts[0].trim()] = parts[1].trim()
+                                    env.setProperty(parts[0].trim(), parts[1].trim())
                                 }
                             }
                         }
@@ -480,7 +480,7 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                             if (line.trim() && line.contains('=')) {
                                 def parts = line.split('=', 2)
                                 if (parts.size() == 2) {
-                                    env[parts[0].trim()] = parts[1].trim()
+                                    env.setProperty(parts[0].trim(), parts[1].trim())
                                 }
                             }
                         }
@@ -596,7 +596,7 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                             if (line.trim() && line.contains('=')) {
                                 def parts = line.split('=', 2)
                                 if (parts.size() == 2) {
-                                    env[parts[0].trim()] = parts[1].trim()
+                                    env.setProperty(parts[0].trim(), parts[1].trim())
                                 }
                             }
                         }
@@ -706,7 +706,7 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                         if (line.trim() && line.contains('=')) {
                             def parts = line.split('=', 2)
                             if (parts.size() == 2) {
-                                env[parts[0].trim()] = parts[1].trim()
+                                env.setProperty(parts[0].trim(), parts[1].trim())
                             }
                         }
                     }
