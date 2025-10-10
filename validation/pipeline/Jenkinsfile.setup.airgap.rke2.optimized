@@ -153,6 +153,18 @@ pipeline {
                     def jobShortName = AIRGAP_PIPELINE.getShortJobName()
                     def buildNumber = env.BUILD_NUMBER ?: 'unknown'
                     
+                    // Set environment variables that need to persist across stages
+                    currentBuild.displayName = "#${env.BUILD_NUMBER} - ${jobShortName}"
+                    
+                    // Write environment variables to a file to ensure persistence
+                    writeFile file: 'pipeline-env.properties', text: """
+JOB_SHORT_NAME=${jobShortName}
+BUILD_CONTAINER_NAME=${jobShortName}${buildNumber}
+IMAGE_NAME=rancher-airgap-${jobShortName}${buildNumber}
+VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
+"""
+                    
+                    // Also set them in the environment
                     env.JOB_SHORT_NAME = jobShortName
                     env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}"
                     env.IMAGE_NAME = "rancher-airgap-${jobShortName}${buildNumber}"
@@ -168,6 +180,14 @@ pipeline {
  
                     // Setup dynamic environment
                     setupDynamicEnvironment()
+                    
+                    // Restore environment variables from file to ensure persistence
+                    if (fileExists('pipeline-env.properties')) {
+                        def props = readProperties file: 'pipeline-env.properties'
+                        props.each { key, value ->
+                            env[key] = value
+                        }
+                    }
                     
                     AIRGAP_PIPELINE.logInfo("Pipeline initialized successfully")
                     AIRGAP_PIPELINE.logInfo("Build container: ${env.BUILD_CONTAINER_NAME}")
@@ -226,6 +246,15 @@ pipeline {
             steps {
                 script {
                     ensureAirgapPipeline()
+                    
+                    // Restore environment variables from file to ensure persistence
+                    if (fileExists('pipeline-env.properties')) {
+                        def props = readProperties file: 'pipeline-env.properties'
+                        props.each { key, value ->
+                            env[key] = value
+                        }
+                    }
+                    
                     AIRGAP_PIPELINE.logInfo('Configuring deployment environment')
 
                     // Read Ansible variables from textbox parameter
@@ -258,6 +287,15 @@ pipeline {
             steps {
                 script {
                     ensureAirgapPipeline()
+                    
+                    // Restore environment variables from file to ensure persistence
+                    if (fileExists('pipeline-env.properties')) {
+                        def props = readProperties file: 'pipeline-env.properties'
+                        props.each { key, value ->
+                            env[key] = value
+                        }
+                    }
+                    
                     AIRGAP_PIPELINE.logInfo('Deploying infrastructure with OpenTofu')
 
                     // Configuration validation
@@ -384,6 +422,15 @@ pipeline {
             steps {
                 script {
                     ensureAirgapPipeline()
+                    
+                    // Restore environment variables from file to ensure persistence
+                    if (fileExists('pipeline-env.properties')) {
+                        def props = readProperties file: 'pipeline-env.properties'
+                        props.each { key, value ->
+                            env[key] = value
+                        }
+                    }
+                    
                     AIRGAP_PIPELINE.logInfo('Preparing bastion host for Ansible deployment')
 
                     // Configuration validation
@@ -468,6 +515,15 @@ pipeline {
             steps {
                 script {
                     ensureAirgapPipeline()
+                    
+                    // Restore environment variables from file to ensure persistence
+                    if (fileExists('pipeline-env.properties')) {
+                        def props = readProperties file: 'pipeline-env.properties'
+                        props.each { key, value ->
+                            env[key] = value
+                        }
+                    }
+                    
                     AIRGAP_PIPELINE.logInfo('Deploying RKE2 cluster and Rancher with optimized Ansible workflow')
 
                     // Configuration validation
@@ -546,6 +602,15 @@ pipeline {
                     echo '[WARNING] Airgap pipeline library unavailable during post-build cleanup'
                     return
                 }
+                
+                // Restore environment variables from file to ensure persistence
+                if (fileExists('pipeline-env.properties')) {
+                    def props = readProperties file: 'pipeline-env.properties'
+                    props.each { key, value ->
+                        env[key] = value
+                    }
+                }
+                
                 AIRGAP_PIPELINE.logInfo('Starting post-build cleanup')
 
                 // Archive important artifacts (excluding sensitive tfstate and tfvars files)

@@ -133,10 +133,25 @@ pipeline {
                 script {
                     ensureAirgapPipeline()
  
-                    env.JOB_SHORT_NAME = AIRGAP_PIPELINE.getShortJobName()
-                    env.BUILD_CONTAINER_NAME = "${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}-destroy"
-                    env.IMAGE_NAME = "rancher-destroy-${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}"
-                    env.VALIDATION_VOLUME = "DestroySharedVolume-${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}"
+                    def jobShortName = AIRGAP_PIPELINE.getShortJobName()
+                    def buildNumber = env.BUILD_NUMBER ?: 'unknown'
+                    
+                    // Set environment variables that need to persist across stages
+                    currentBuild.displayName = "#${env.BUILD_NUMBER} - ${jobShortName}"
+                    
+                    // Write environment variables to a file to ensure persistence
+                    writeFile file: 'pipeline-env.properties', text: """
+JOB_SHORT_NAME=${jobShortName}
+BUILD_CONTAINER_NAME=${jobShortName}${buildNumber}-destroy
+IMAGE_NAME=rancher-destroy-${jobShortName}${buildNumber}
+VALIDATION_VOLUME=DestroySharedVolume-${jobShortName}${buildNumber}
+"""
+                    
+                    // Also set them in the environment
+                    env.JOB_SHORT_NAME = jobShortName
+                    env.BUILD_CONTAINER_NAME = "${jobShortName}${buildNumber}-destroy"
+                    env.IMAGE_NAME = "rancher-destroy-${jobShortName}${buildNumber}"
+                    env.VALIDATION_VOLUME = "DestroySharedVolume-${jobShortName}${buildNumber}"
  
                     AIRGAP_PIPELINE.logInfo('Initializing optimized destruction pipeline')
  
@@ -148,6 +163,14 @@ pipeline {
  
                     // Setup dynamic environment
                     setupDynamicEnvironment()
+                    
+                    // Restore environment variables from file to ensure persistence
+                    if (fileExists('pipeline-env.properties')) {
+                        def props = readProperties file: 'pipeline-env.properties'
+                        props.each { key, value ->
+                            env[key] = value
+                        }
+                    }
                     
                     AIRGAP_PIPELINE.logInfo("Pipeline initialized successfully")
                     AIRGAP_PIPELINE.logInfo("Build container: ${env.BUILD_CONTAINER_NAME}")
@@ -205,6 +228,15 @@ pipeline {
             steps {
                 script {
                     ensureAirgapPipeline()
+                    
+                    // Restore environment variables from file to ensure persistence
+                    if (fileExists('pipeline-env.properties')) {
+                        def props = readProperties file: 'pipeline-env.properties'
+                        props.each { key, value ->
+                            env[key] = value
+                        }
+                    }
+                    
                     AIRGAP_PIPELINE.logInfo('Configuring destruction environment')
 
                     // Configure credentials and environment files
@@ -231,6 +263,15 @@ pipeline {
             steps {
                 script {
                     ensureAirgapPipeline()
+                    
+                    // Restore environment variables from file to ensure persistence
+                    if (fileExists('pipeline-env.properties')) {
+                        def props = readProperties file: 'pipeline-env.properties'
+                        props.each { key, value ->
+                            env[key] = value
+                        }
+                    }
+                    
                     AIRGAP_PIPELINE.logInfo('Performing optimized infrastructure destruction with OpenTofu')
 
                     // Configuration validation
@@ -385,6 +426,15 @@ pipeline {
             steps {
                 script {
                     ensureAirgapPipeline()
+                    
+                    // Restore environment variables from file to ensure persistence
+                    if (fileExists('pipeline-env.properties')) {
+                        def props = readProperties file: 'pipeline-env.properties'
+                        props.each { key, value ->
+                            env[key] = value
+                        }
+                    }
+                    
                     AIRGAP_PIPELINE.logInfo('Cleaning up S3 state files')
 
                     try {
@@ -420,6 +470,15 @@ pipeline {
                     echo '[WARNING] Airgap pipeline library unavailable during post-build cleanup'
                     return
                 }
+                
+                // Restore environment variables from file to ensure persistence
+                if (fileExists('pipeline-env.properties')) {
+                    def props = readProperties file: 'pipeline-env.properties'
+                    props.each { key, value ->
+                        env[key] = value
+                    }
+                }
+                
                 AIRGAP_PIPELINE.logInfo('Starting post-destruction cleanup')
 
                 // Archive important artifacts
