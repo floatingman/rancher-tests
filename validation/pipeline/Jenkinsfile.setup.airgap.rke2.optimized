@@ -253,9 +253,14 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                     
                     // Restore environment variables from file to ensure persistence
                     if (fileExists('pipeline-env.properties')) {
-                        def props = readProperties file: 'pipeline-env.properties'
-                        props.each { key, value ->
-                            env[key] = value
+                        def propsText = readFile file: 'pipeline-env.properties'
+                        propsText.split('\n').each { line ->
+                            if (line.trim() && line.contains('=')) {
+                                def parts = line.split('=', 2)
+                                if (parts.size() == 2) {
+                                    env[parts[0].trim()] = parts[1].trim()
+                                }
+                            }
                         }
                         echo "Environment variables restored in Configure Environment stage:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
@@ -312,9 +317,14 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                     
                     // Restore environment variables from file to ensure persistence
                     if (fileExists('pipeline-env.properties')) {
-                        def props = readProperties file: 'pipeline-env.properties'
-                        props.each { key, value ->
-                            env[key] = value
+                        def propsText = readFile file: 'pipeline-env.properties'
+                        propsText.split('\n').each { line ->
+                            if (line.trim() && line.contains('=')) {
+                                def parts = line.split('=', 2)
+                                if (parts.size() == 2) {
+                                    env[parts[0].trim()] = parts[1].trim()
+                                }
+                            }
                         }
                         echo "Environment variables restored in Infrastructure Deployment stage:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
@@ -465,9 +475,14 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                     
                     // Restore environment variables from file to ensure persistence
                     if (fileExists('pipeline-env.properties')) {
-                        def props = readProperties file: 'pipeline-env.properties'
-                        props.each { key, value ->
-                            env[key] = value
+                        def propsText = readFile file: 'pipeline-env.properties'
+                        propsText.split('\n').each { line ->
+                            if (line.trim() && line.contains('=')) {
+                                def parts = line.split('=', 2)
+                                if (parts.size() == 2) {
+                                    env[parts[0].trim()] = parts[1].trim()
+                                }
+                            }
                         }
                         echo "Environment variables restored in Bastion Preparation stage:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
@@ -576,9 +591,14 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                     
                     // Restore environment variables from file to ensure persistence
                     if (fileExists('pipeline-env.properties')) {
-                        def props = readProperties file: 'pipeline-env.properties'
-                        props.each { key, value ->
-                            env[key] = value
+                        def propsText = readFile file: 'pipeline-env.properties'
+                        propsText.split('\n').each { line ->
+                            if (line.trim() && line.contains('=')) {
+                                def parts = line.split('=', 2)
+                                if (parts.size() == 2) {
+                                    env[parts[0].trim()] = parts[1].trim()
+                                }
+                            }
                         }
                         echo "Environment variables restored in Deploy with Ansible stage:"
                         echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
@@ -681,9 +701,14 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                 
                 // Restore environment variables from file to ensure persistence
                 if (fileExists('pipeline-env.properties')) {
-                    def props = readProperties file: 'pipeline-env.properties'
-                    props.each { key, value ->
-                        env[key] = value
+                    def propsText = readFile file: 'pipeline-env.properties'
+                    propsText.split('\n').each { line ->
+                        if (line.trim() && line.contains('=')) {
+                            def parts = line.split('=', 2)
+                            if (parts.size() == 2) {
+                                env[parts[0].trim()] = parts[1].trim()
+                            }
+                        }
                     }
                     echo "Environment variables restored in post-build cleanup:"
                     echo "JOB_SHORT_NAME=${env.JOB_SHORT_NAME}"
