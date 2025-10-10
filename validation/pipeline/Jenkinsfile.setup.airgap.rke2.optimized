@@ -10,7 +10,9 @@
  * 4. Reducing Docker container overhead
  * 5. Improving error handling and recovery
  */
-
+ 
+def AIRGAP_PIPELINE = null
+ 
 pipeline {
     agent any
 
@@ -107,48 +109,45 @@ pipeline {
     }
 
     environment {
-        // Load shared library
-        AIRGAP_PIPELINE = load 'validation/pipeline/vars/airgapPipeline.groovy'
-
-        // Default configuration
         TF_WORKSPACE = "jenkins_airgap_ansible_workspace_${env.BUILD_NUMBER}"
         QA_INFRA_WORK_PATH = '/root/go/src/github.com/rancher/qa-infra-automation'
         ROOT_PATH = '/root/go/src/github.com/rancher/tests/'
-        
-        // Timeouts (in minutes)
         TERRAFORM_TIMEOUT = '30'
         ANSIBLE_TIMEOUT = '45'
-        
-        // Configuration files
         TERRAFORM_VARS_FILENAME = 'cluster.tfvars'
         TERRAFORM_BACKEND_VARS_FILENAME = 'backend.tfvars'
         ANSIBLE_VARS_FILENAME = 'vars.yaml'
         ENV_FILE = '.env'
-        
-        // Computed values
-        JOB_SHORT_NAME = "${AIRGAP_PIPELINE.getShortJobName()}"
-        BUILD_CONTAINER_NAME = "${JOB_SHORT_NAME}${BUILD_NUMBER}"
-        IMAGE_NAME = "rancher-airgap-${JOB_SHORT_NAME}${BUILD_NUMBER}"
-        VALIDATION_VOLUME = "AnsibleAirgapSharedVolume-${JOB_SHORT_NAME}${BUILD_NUMBER}"
-        
-        // S3 configuration
+        JOB_SHORT_NAME = ''
+        BUILD_CONTAINER_NAME = ''
+        IMAGE_NAME = ''
+        VALIDATION_VOLUME = ''
         S3_BUCKET_NAME = 'jenkins-terraform-state-storage'
         S3_REGION = 'us-east-2'
-        S3_KEY_PREFIX = "jenkins-airgap-rke2/terraform.tfstate"
+        S3_KEY_PREFIX = 'jenkins-airgap-rke2/terraform.tfstate'
     }
 
     stages {
         stage('Initialize Pipeline') {
             steps {
                 script {
+                    if (AIRGAP_PIPELINE == null) {
+                        AIRGAP_PIPELINE = load 'validation/pipeline/vars/airgapPipeline.groovy'
+                    }
+ 
+                    env.JOB_SHORT_NAME = AIRGAP_PIPELINE.getShortJobName()
+                    env.BUILD_CONTAINER_NAME = "${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}"
+                    env.IMAGE_NAME = "rancher-airgap-${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}"
+                    env.VALIDATION_VOLUME = "AnsibleAirgapSharedVolume-${env.JOB_SHORT_NAME}${env.BUILD_NUMBER}"
+ 
                     AIRGAP_PIPELINE.logInfo('Initializing optimized pipeline')
-                    
+ 
                     // Validate parameters
                     validateParameters()
-                    
+ 
                     // Clean workspace
                     deleteDir()
-                    
+ 
                     // Setup dynamic environment
                     setupDynamicEnvironment()
                     
@@ -519,8 +518,10 @@ pipeline {
     post {
         always {
             script {
-                // Reload shared library to ensure it's accessible in post section
-                def AIRGAP_PIPELINE = load 'validation/pipeline/vars/airgapPipeline.groovy'
+                if (AIRGAP_PIPELINE == null) {
+                    echo '[WARNING] Airgap pipeline library unavailable during post-build cleanup'
+                    return
+                }
                 AIRGAP_PIPELINE.logInfo('Starting post-build cleanup')
 
                 // Archive important artifacts (excluding sensitive tfstate and tfvars files)
@@ -558,8 +559,10 @@ pipeline {
 
         success {
             script {
-                // Reload shared library to ensure it's accessible in post section
-                def AIRGAP_PIPELINE = load 'validation/pipeline/vars/airgapPipeline.groovy'
+                if (AIRGAP_PIPELINE == null) {
+                    echo '[WARNING] Airgap pipeline library unavailable for success notification'
+                    return
+                }
                 AIRGAP_PIPELINE.logInfo('Optimized pipeline completed successfully')
                 AIRGAP_PIPELINE.sendSlackNotification([
                     color: 'good',
@@ -570,8 +573,10 @@ pipeline {
 
         failure {
             script {
-                // Reload shared library to ensure it's accessible in post section
-                def AIRGAP_PIPELINE = load 'validation/pipeline/vars/airgapPipeline.groovy'
+                if (AIRGAP_PIPELINE == null) {
+                    echo '[WARNING] Airgap pipeline library unavailable for failure notification'
+                    return
+                }
                 AIRGAP_PIPELINE.logError('Optimized pipeline failed')
                 AIRGAP_PIPELINE.sendSlackNotification([
                     color: 'danger',
@@ -582,8 +587,10 @@ pipeline {
 
         unstable {
             script {
-                // Reload shared library to ensure it's accessible in post section
-                def AIRGAP_PIPELINE = load 'validation/pipeline/vars/airgapPipeline.groovy'
+                if (AIRGAP_PIPELINE == null) {
+                    echo '[WARNING] Airgap pipeline library unavailable for unstable notification'
+                    return
+                }
                 AIRGAP_PIPELINE.logWarning('Optimized pipeline completed with warnings')
                 AIRGAP_PIPELINE.sendSlackNotification([
                     color: 'warning',
