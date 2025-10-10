@@ -277,6 +277,11 @@ def executeScriptInContainer(imageName, containerName, volumeName, scriptContent
     def scriptFile = "docker-script-${timestamp}.sh"
     def credentialEnvFile = null
     
+    // Ensure parameters are not null
+    imageName = imageName ?: 'unknown'
+    containerName = containerName ?: 'unknown'
+    volumeName = volumeName ?: 'unknown'
+    
     writeFile file: scriptFile, text: scriptContent
     
     try {
