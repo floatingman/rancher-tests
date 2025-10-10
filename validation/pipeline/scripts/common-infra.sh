@@ -45,21 +45,21 @@ initialize_terraform() {
 manage_terraform_workspace() {
     local workspace_name="${TF_WORKSPACE}"
     local module_path="${1:-tofu/aws/modules/airgap}"
-    
+
     if [[ -z "$workspace_name" ]]; then
         log_error "TF_WORKSPACE environment variable is not set"
         exit 1
     fi
-    
+
     log_info "Managing OpenTofu workspace: $workspace_name"
-    
+
     change_to_infra_directory
-    
+
     log_info "Current workspaces:"
     tofu -chdir="$module_path" workspace list
-    
-    # Create workspace if needed
-    create_workspace_if_needed
+
+    # Create workspace if needed - pass module_path to function
+    create_workspace_if_needed "$module_path"
     
     # Verify workspace selection
     log_info "Verifying workspace selection..."

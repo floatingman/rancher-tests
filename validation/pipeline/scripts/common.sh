@@ -102,23 +102,24 @@ change_to_infra_directory() {
 
 create_workspace_if_needed() {
     local workspace_name="${TF_WORKSPACE}"
-    
+    local module_path="${1:-tofu/aws/modules/airgap}"
+
     if [[ -z "$workspace_name" ]]; then
         log_error "TF_WORKSPACE not set"
         exit 1
     fi
-    
+
     log_info "Checking workspace: $workspace_name"
-    
+
     # Check if workspace exists
     local workspace_exists
-    workspace_exists=$(tofu -chdir=tofu/aws/modules/airgap workspace list 2>/dev/null | grep -w "$workspace_name" || true)
-    
+    workspace_exists=$(tofu -chdir="$module_path" workspace list 2>/dev/null | grep -w "$workspace_name" || true)
+
     if [[ -z "$workspace_exists" ]]; then
         log_info "Workspace $workspace_name does not exist, creating it..."
         # Temporarily unset TF_WORKSPACE to allow workspace creation
         unset TF_WORKSPACE
-        tofu -chdir=tofu/aws/modules/airgap workspace new "$workspace_name"
+        tofu -chdir="$module_path" workspace new "$workspace_name"
         # Set TF_WORKSPACE back for subsequent operations
         export TF_WORKSPACE="$workspace_name"
         log_info "Workspace $workspace_name created successfully"
