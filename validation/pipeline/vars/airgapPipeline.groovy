@@ -205,25 +205,41 @@ def buildDockerImage(imageName) {
 
     logInfo("Building Docker image: ${resolvedImageName}")
 
-    def dockerfilePath = AirgapPipelineConfig.DOCKERFILE_PATH
-    def configureScript = './tests/validation/configure.sh'
+    def candidateDockerfiles = [
+        './tests/validation/Dockerfile.tofu.e2e',
+        './validation/Dockerfile.tofu.e2e',
+        './Dockerfile.tofu.e2e',
+        './validation/Dockerfile.e2e',
+        './tests/validation/Dockerfile.e2e'
+    ]
 
-    if (!fileExists(dockerfilePath)) {
-        dockerfilePath = './validation/Dockerfile.tofu.e2e'
-        configureScript = './validation/configure.sh'
+    def dockerfilePath = candidateDockerfiles.find { fileExists(it) }
+
+    if (!dockerfilePath) {
+        def discovered = sh(script: "find . -maxdepth 5 -type f -name 'Dockerfile.tofu.e2e' -o -name 'Dockerfile.e2e'", returnStdout: true).trim()
+        if (discovered) {
+            dockerfilePath = discovered.readLines().first()
+            logWarning("Using Dockerfile discovered via search: ${dockerfilePath}")
+        } else {
+            error("""Dockerfile not found.
+Searched:
+${candidateDockerfiles.collect { "  - ${it}" }.join('\n')}
+Additionally searched workspace with 'find' but found no Dockerfile matching *tofu.e2e or *e2e.""")
+        }
     }
 
-    if (!fileExists(dockerfilePath)) {
-        error("""Dockerfile not found.
-Expected at:
-  - ./tests/validation/Dockerfile.tofu.e2e
-  - ./validation/Dockerfile.tofu.e2e""")
+    def configureScript = "${new File(dockerfilePath).parent}/configure.sh"
+    if (!fileExists(configureScript)) {
+        configureScript = './tests/validation/configure.sh'
+        if (!fileExists(configureScript)) {
+            configureScript = './validation/configure.sh'
+        }
     }
 
-    if (fileExists(configureScript)) {
+    if (configureScript && fileExists(configureScript)) {
         sh "${configureScript} > /dev/null 2>&1"
     } else {
-        logWarning("Configure script not found at ${configureScript}, continuing without running it")
+        logWarning("No configure.sh found next to ${dockerfilePath}; skipping configure step")
     }
 
     def buildDate = sh(script: "date -u '+%Y-%m-%dT%H:%M:%SZ'", returnStdout: true).trim()
@@ -246,7 +262,7 @@ Expected at:
             --quiet
     """
 
-    logInfo('Docker image built successfully')
+    logInfo("Docker image built successfully using ${dockerfilePath}")
 }
 
 def createSharedVolume(volumeName) {
