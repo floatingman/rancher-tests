@@ -197,25 +197,55 @@ def addCredentialEnvFileToDockerCommand(dockerCmd, credentialEnvFile) {
 // ========================================
 
 def buildDockerImage(imageName) {
-    logInfo("Building Docker image: ${imageName}")
-    
-    dir(AirgapPipelineConfig.DOCKER_BUILD_CONTEXT) {
-        // Run configure script silently
-        sh './tests/validation/configure.sh > /dev/null 2>&1'
-        
-        // Build Docker image with minimal output
-        sh """
-            docker build . \\
-                -f ${AirgapPipelineConfig.DOCKERFILE_PATH} \\
-                -t ${imageName} \\
-                --build-arg BUILD_DATE=\$(date -u +'%Y-%m-%dT%H:%M:%SZ') \\
-                --build-arg VCS_REF=\$(git rev-parse --short HEAD) \\
-                --label "pipeline.build.number=${env.BUILD_NUMBER}" \\
-                --label "pipeline.job.name=${env.JOB_NAME}" \\
-                --quiet
-        """
+    def resolvedImageName = imageName
+    if (!resolvedImageName?.trim()) {
+        resolvedImageName = "rancher-airgap-${getShortJobName()}-${env.BUILD_NUMBER ?: 'local'}"
+        logWarning("Docker image name not provided, defaulting to ${resolvedImageName}")
     }
-    
+
+    logInfo("Building Docker image: ${resolvedImageName}")
+
+    def dockerfilePath = AirgapPipelineConfig.DOCKERFILE_PATH
+    def configureScript = './tests/validation/configure.sh'
+
+    if (!fileExists(dockerfilePath)) {
+        dockerfilePath = './validation/Dockerfile.tofu.e2e'
+        configureScript = './validation/configure.sh'
+    }
+
+    if (!fileExists(dockerfilePath)) {
+        error("""Dockerfile not found.
+Expected at:
+  - ./tests/validation/Dockerfile.tofu.e2e
+  - ./validation/Dockerfile.tofu.e2e""")
+    }
+
+    if (fileExists(configureScript)) {
+        sh "${configureScript} > /dev/null 2>&1"
+    } else {
+        logWarning("Configure script not found at ${configureScript}, continuing without running it")
+    }
+
+    def buildDate = sh(script: "date -u '+%Y-%m-%dT%H:%M:%SZ'", returnStdout: true).trim()
+    def vcsRefResult = sh(script: 'git rev-parse --short HEAD', returnStatus: true)
+    def vcsRef = 'unknown'
+    if (vcsRefResult == 0) {
+        vcsRef = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+    } else {
+        logWarning('Unable to determine git revision for Docker label (workspace is not a git repository)')
+    }
+
+    sh """
+        docker build . \\
+            -f ${dockerfilePath} \\
+            -t ${resolvedImageName} \\
+            --build-arg BUILD_DATE=${buildDate} \\
+            --build-arg VCS_REF=${vcsRef} \\
+            --label "pipeline.build.number=${env.BUILD_NUMBER}" \\
+            --label "pipeline.job.name=${env.JOB_NAME}" \\
+            --quiet
+    """
+
     logInfo('Docker image built successfully')
 }
 
