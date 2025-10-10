@@ -276,12 +276,49 @@ def executeScriptInContainer(imageName, containerName, volumeName, scriptContent
     def actualContainerName = "${containerName}-script-${timestamp}"
     def scriptFile = "docker-script-${timestamp}.sh"
     def credentialEnvFile = null
-    
+
+    // Debug: Check environment variables
+    logDebug("=== ENVIRONMENT VARIABLE DEBUG ===")
+    logDebug("env.IMAGE_NAME: '${env.IMAGE_NAME}' (type: ${env.IMAGE_NAME?.class?.simpleName})")
+    logDebug("env.BUILD_CONTAINER_NAME: '${env.BUILD_CONTAINER_NAME}' (type: ${env.BUILD_CONTAINER_NAME?.class?.simpleName})")
+    logDebug("env.VALIDATION_VOLUME: '${env.VALIDATION_VOLUME}' (type: ${env.VALIDATION_VOLUME?.class?.simpleName})")
+    logDebug("env.JOB_SHORT_NAME: '${env.JOB_SHORT_NAME}' (type: ${env.JOB_SHORT_NAME?.class?.simpleName})")
+    logDebug("passed imageName: '${imageName}' (type: ${imageName?.class?.simpleName})")
+    logDebug("passed containerName: '${containerName}' (type: ${containerName?.class?.simpleName})")
+    logDebug("passed volumeName: '${volumeName}' (type: ${volumeName?.class?.simpleName})")
+
+    // Try to restore from file if environment variables are missing
+    if (!env.IMAGE_NAME || !env.BUILD_CONTAINER_NAME || !env.VALIDATION_VOLUME) {
+        logWarning("Environment variables missing, attempting to restore from file...")
+        if (fileExists('pipeline-env.properties')) {
+            def propsText = readFile file: 'pipeline-env.properties'
+            propsText.split('\n').each { line ->
+                if (line.trim() && line.contains('=')) {
+                    def parts = line.split('=', 2)
+                    if (parts.size() == 2) {
+                        def key = parts[0].trim()
+                        def value = parts[1].trim()
+                        logDebug("Restoring from file: ${key} = '${value}'")
+                        env.setProperty(key, value)
+                    }
+                }
+            }
+        } else {
+            logWarning("pipeline-env.properties file not found")
+        }
+    }
+
+    // Debug after potential restoration
+    logDebug("=== AFTER RESTORATION DEBUG ===")
+    logDebug("env.IMAGE_NAME: '${env.IMAGE_NAME}' (type: ${env.IMAGE_NAME?.class?.simpleName})")
+    logDebug("env.BUILD_CONTAINER_NAME: '${env.BUILD_CONTAINER_NAME}' (type: ${env.BUILD_CONTAINER_NAME?.class?.simpleName})")
+    logDebug("env.VALIDATION_VOLUME: '${env.VALIDATION_VOLUME}' (type: ${env.VALIDATION_VOLUME?.class?.simpleName})")
+
     // Ensure parameters are not null with fallbacks
     imageName = imageName ?: env.IMAGE_NAME ?: 'unknown'
     containerName = containerName ?: env.BUILD_CONTAINER_NAME ?: 'unknown'
     volumeName = volumeName ?: env.VALIDATION_VOLUME ?: 'unknown'
-    
+
     // Log the parameters for debugging
     logInfo("Container execution parameters:")
     logInfo("  Image name: ${imageName}")
