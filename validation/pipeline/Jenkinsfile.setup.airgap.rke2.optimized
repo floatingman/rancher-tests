@@ -859,10 +859,10 @@ def uploadClusterTfvarsToS3() {
 
     // Explicitly pass S3 variables as environment variables to the container
     def s3EnvVars = [
-        'S3_BUCKET_NAME': env.S3_BUCKET_NAME,
-        'S3_REGION': env.S3_REGION,
-        'S3_KEY_PREFIX': env.S3_KEY_PREFIX,
-        'AWS_REGION': env.AWS_REGION
+        'S3_BUCKET_NAME': env.S3_BUCKET_NAME ?: 'jenkins-terraform-state-storage',
+        'S3_REGION': env.S3_REGION ?: 'us-east-2',
+        'S3_KEY_PREFIX': env.S3_KEY_PREFIX ?: 'jenkins-airgap-rke2/terraform.tfstate',
+        'AWS_REGION': env.AWS_REGION ?: 'us-east-2'
     ]
 
     try {
