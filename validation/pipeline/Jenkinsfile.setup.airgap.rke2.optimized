@@ -418,7 +418,7 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                                 env.BUILD_CONTAINER_NAME,
                                 env.VALIDATION_VOLUME,
                                 initScript,
-                                [:],
+                                [TF_WORKSPACE: env.TF_WORKSPACE],
                                 env.ENV_FILE
                             )
 
@@ -435,7 +435,7 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                                 env.BUILD_CONTAINER_NAME,
                                 env.VALIDATION_VOLUME,
                                 workspaceScript,
-                                [:],
+                                [TF_WORKSPACE: env.TF_WORKSPACE],
                                 env.ENV_FILE
                             )
 
@@ -452,7 +452,7 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                                 env.BUILD_CONTAINER_NAME,
                                 env.VALIDATION_VOLUME,
                                 planScript,
-                                [:],
+                                [TF_WORKSPACE: env.TF_WORKSPACE],
                                 env.ENV_FILE
                             )
 
@@ -469,7 +469,7 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                                 env.BUILD_CONTAINER_NAME,
                                 env.VALIDATION_VOLUME,
                                 applyScript,
-                                [:],
+                                [TF_WORKSPACE: env.TF_WORKSPACE],
                                 env.ENV_FILE
                             )
 
@@ -594,7 +594,7 @@ VALIDATION_VOLUME=AnsibleAirgapSharedVolume-${jobShortName}${buildNumber}
                                 env.BUILD_CONTAINER_NAME,
                                 env.VALIDATION_VOLUME,
                                 bastionScript,
-                                [:],
+                                [TF_WORKSPACE: env.TF_WORKSPACE],
                                 env.ENV_FILE
                             )
 
@@ -1122,7 +1122,7 @@ def handleTimeoutFailure() {
                 env.BUILD_CONTAINER_NAME,
                 env.VALIDATION_VOLUME,
                 cleanupScript,
-                [:],
+                [TF_WORKSPACE: env.TF_WORKSPACE],
                 env.ENV_FILE
             )
             AIRGAP_PIPELINE.logInfo('Infrastructure cleanup attempted for timeout')
@@ -1159,7 +1159,7 @@ def handleDeploymentFailure() {
                 env.BUILD_CONTAINER_NAME,
                 env.VALIDATION_VOLUME,
                 cleanupScript,
-                [:],
+                [TF_WORKSPACE: env.TF_WORKSPACE],
                 env.ENV_FILE
             )
             AIRGAP_PIPELINE.logInfo('Infrastructure cleanup attempted')
@@ -1196,7 +1196,7 @@ def handleAnsibleDeploymentFailure() {
                 env.BUILD_CONTAINER_NAME,
                 env.VALIDATION_VOLUME,
                 cleanupScript,
-                [:],
+                [TF_WORKSPACE: env.TF_WORKSPACE],
                 env.ENV_FILE
             )
             AIRGAP_PIPELINE.logInfo('Infrastructure cleanup attempted')
