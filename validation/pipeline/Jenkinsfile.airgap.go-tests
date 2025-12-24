@@ -13,6 +13,7 @@ node {
     def rancherHostname = ''
     def dockerPlatform = config.getDockerPlatform()
     def infraToolsImage = config.getDockerImage('infraTools')
+    def goTestsImage = 'rancher-go-tests:latest'
 
     def testsBranch = env.GO_REPO_BRANCH ?: 'main'
     def testsRepo = env.GO_REPO_URL ?: 'https://github.com/rancher/tests'
@@ -68,6 +69,14 @@ node {
                 container.build(
                     dir: "${testsPath}/validation/pipeline/scripts",
                     buildScript: 'build-infra-tools.sh'
+                )
+            }
+
+            stage('Build Go Tests Image') {
+                echo 'Building Go test runner image using Dockerfile.validation'
+                container.build(
+                    dir: "${testsPath}/validation/pipeline/scripts",
+                    buildScript: 'build-go-tests-image.sh'
                 )
             }
 
@@ -294,7 +303,7 @@ node {
                         --env-file ${envFile} \
                         -v ${workspace}:/workspace \
                         -w /workspace/tests \
-                        ${infraToolsImage} \
+                        ${goTestsImage} \
                         sh -c 'set -e; set -o pipefail; ${testCmd} | tee go-test.log'
                 """
 
