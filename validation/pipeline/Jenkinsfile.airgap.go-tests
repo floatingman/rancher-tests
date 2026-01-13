@@ -78,6 +78,20 @@ node {
                     echo '--- tests/.ssh contents (should contain Jenkins keys for Docker build context) ---'
                     ls -la ${testsPath}/.ssh || echo 'tests/.ssh directory missing'
                 """
+
+                echo 'Copying SSH keys into tests/.ssh so Docker build context includes them'
+                sh """
+                    set -euo pipefail
+                    mkdir -p ${testsPath}/.ssh
+                    cp .ssh/${env.AWS_SSH_PEM_KEY_NAME} ${testsPath}/.ssh/
+                    cp .ssh/${env.AWS_SSH_PEM_KEY_NAME}.pub ${testsPath}/.ssh/ || true
+                    chmod 600 ${testsPath}/.ssh/${env.AWS_SSH_PEM_KEY_NAME}
+                    if [ -f ${testsPath}/.ssh/${env.AWS_SSH_PEM_KEY_NAME}.pub ]; then
+                        chmod 644 ${testsPath}/.ssh/${env.AWS_SSH_PEM_KEY_NAME}.pub
+                    fi
+                    echo '--- tests/.ssh contents after copy ---'
+                    ls -la ${testsPath}/.ssh
+                """
             }
 
             stage('Build Infrastructure Tools Image') {
