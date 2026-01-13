@@ -64,9 +64,12 @@ node {
             }
 
             stage('Configure SSH Key') {
+                def sshPrivateKeyName = env.AWS_SSH_PEM_KEY_NAME
+                def sshPublicKeyName = sshPrivateKeyName.replaceAll(/\.[^.]+$/, '') + '.pub'
+
                 infrastructure.writeSshKey(
                     keyContent: env.AWS_SSH_PEM_KEY,
-                    keyName: env.AWS_SSH_PEM_KEY_NAME,
+                    keyName: sshPrivateKeyName,
                     dir: '.ssh'
                 )
 
@@ -77,20 +80,26 @@ node {
                     ls -la .ssh || echo '.ssh directory missing'
                     echo '--- tests/.ssh contents (should contain Jenkins keys for Docker build context) ---'
                     ls -la ${testsPath}/.ssh || echo 'tests/.ssh directory missing'
+                    echo '--- tests/validation/.ssh contents (Dockerfile references this path) ---'
+                    ls -la ${testsPath}/validation/.ssh || echo 'tests/validation/.ssh directory missing'
                 """
 
-                echo 'Copying SSH keys into tests/.ssh so Docker build context includes them'
+                echo 'Copying SSH keys into both tests/.ssh and tests/validation/.ssh so Docker build context includes them'
                 sh """
                     set -euo pipefail
-                    mkdir -p ${testsPath}/.ssh
-                    cp .ssh/${env.AWS_SSH_PEM_KEY_NAME} ${testsPath}/.ssh/
-                    cp .ssh/${env.AWS_SSH_PEM_KEY_NAME}.pub ${testsPath}/.ssh/ || true
-                    chmod 600 ${testsPath}/.ssh/${env.AWS_SSH_PEM_KEY_NAME}
-                    if [ -f ${testsPath}/.ssh/${env.AWS_SSH_PEM_KEY_NAME}.pub ]; then
-                        chmod 644 ${testsPath}/.ssh/${env.AWS_SSH_PEM_KEY_NAME}.pub
-                    fi
-                    echo '--- tests/.ssh contents after copy ---'
-                    ls -la ${testsPath}/.ssh
+                    private_source=.ssh/${sshPrivateKeyName}
+                    public_source=.ssh/${sshPublicKeyName}
+                    for dest in ${testsPath}/.ssh ${testsPath}/validation/.ssh; do
+                        mkdir -p "$dest"
+                        cp "$private_source" "$dest/"
+                        chmod 600 "$dest/${sshPrivateKeyName}"
+                        if [ -f "$public_source" ]; then
+                            cp "$public_source" "$dest/"
+                            chmod 644 "$dest/${sshPublicKeyName}"
+                        fi
+                        echo "--- $dest contents after copy ---"
+                        ls -la "$dest"
+                    done
                 """
             }
 
