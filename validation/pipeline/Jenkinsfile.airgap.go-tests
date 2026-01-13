@@ -84,23 +84,43 @@ node {
                     ls -la ${testsPath}/validation/.ssh || echo 'tests/validation/.ssh directory missing'
                 """
 
-                echo 'Copying SSH keys into both tests/.ssh and tests/validation/.ssh so Docker build context includes them'
-                sh """
-                    set -euo pipefail
-                    private_source=.ssh/${sshPrivateKeyName}
-                    public_source=.ssh/${sshPublicKeyName}
-                    for dest_dir in ${testsPath}/.ssh ${testsPath}/validation/.ssh; do
-                        mkdir -p "$dest_dir"
-                        cp "$private_source" "$dest_dir/"
-                        chmod 600 "$dest_dir/${sshPrivateKeyName}"
-                        if [ -f "$public_source" ]; then
-                            cp "$public_source" "$dest_dir/"
-                            chmod 644 "$dest_dir/${sshPublicKeyName}"
+                def copySshKeysForDockerContext = { String privateKeyName, String publicKeyName, List<String> destinations ->
+                    def quotedDestinations = destinations.collect { "\"${it}\"" }.join(' ')
+                    sh """
+                        set -euo pipefail
+
+                        private_source=".ssh/${privateKeyName}"
+                        public_source=".ssh/${publicKeyName}"
+
+                        if [ ! -s "\$private_source" ]; then
+                            echo "[ERROR] SSH private key missing or empty at \$private_source"
+                            exit 1
                         fi
-                        echo "--- $dest_dir contents after copy ---"
-                        ls -la "$dest_dir"
-                    done
-                """
+
+                        for dest_dir in ${quotedDestinations}; do
+                            mkdir -p "\$dest_dir"
+
+                            install -m 600 "\$private_source" "\$dest_dir/${privateKeyName}"
+
+                            if [ -s "\$public_source" ]; then
+                                install -m 644 "\$public_source" "\$dest_dir/${publicKeyName}"
+                            else
+                                echo "[WARN] Public key \$public_source not found; continuing without it."
+                            fi
+
+                            echo "[INFO] SSH assets staged in \$dest_dir"
+                            ls -la "\$dest_dir"
+                        done
+                    """
+                }
+
+                def sshKeyDestinations = [
+                    "${testsPath}/.ssh",
+                    "${testsPath}/validation/.ssh"
+                ]
+
+                echo 'Copying SSH keys into both tests/.ssh and tests/validation/.ssh so Docker build context includes them'
+                copySshKeysForDockerContext(sshPrivateKeyName, sshPublicKeyName, sshKeyDestinations)
             }
 
             stage('Build Infrastructure Tools Image') {
