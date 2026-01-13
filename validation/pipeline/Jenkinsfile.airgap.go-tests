@@ -69,6 +69,15 @@ node {
                     keyName: env.AWS_SSH_PEM_KEY_NAME,
                     dir: '.ssh'
                 )
+
+                echo "Validating SSH key placement"
+                sh """
+                    set -x
+                    echo '--- Root .ssh contents ---'
+                    ls -la .ssh || echo '.ssh directory missing'
+                    echo '--- tests/.ssh contents (should contain Jenkins keys for Docker build context) ---'
+                    ls -la ${testsPath}/.ssh || echo 'tests/.ssh directory missing'
+                """
             }
 
             stage('Build Infrastructure Tools Image') {
