@@ -89,8 +89,7 @@ node {
                     set -euo pipefail
                     private_source=.ssh/${sshPrivateKeyName}
                     public_source=.ssh/${sshPublicKeyName}
-                    DESTS="${testsPath}/.ssh ${testsPath}/validation/.ssh"
-                    for dest_dir in $DESTS; do
+                    for dest_dir in ${testsPath}/.ssh ${testsPath}/validation/.ssh; do
                         mkdir -p "$dest_dir"
                         cp "$private_source" "$dest_dir/"
                         chmod 600 "$dest_dir/${sshPrivateKeyName}"
