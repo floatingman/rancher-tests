@@ -3,11 +3,15 @@
 
 ARG TOFU_VERSION=1.10.7
 ARG GOTESTSUM_VERSION=v1.13.0
+ARG ANSIBLE_VERSION=13.3.0
+ARG AWSCLI_VERSION=1.44.44
 
 FROM --platform=linux/amd64 golang:1.25-alpine3.22
 
 ARG TOFU_VERSION
 ARG GOTESTSUM_VERSION
+ARG ANSIBLE_VERSION
+ARG AWSCLI_VERSION
 
 # Install runtime dependencies
 RUN apk add --no-cache \
@@ -19,8 +23,10 @@ RUN apk add --no-cache \
     py3-pip \
     ca-certificates
 
-# Install Ansible and AWS CLI
-RUN pip3 install --no-cache-dir --break-system-packages ansible awscli
+# Install Ansible and AWS CLI (pinned versions for reproducible builds)
+RUN pip3 install --no-cache-dir --break-system-packages \
+    ansible==${ANSIBLE_VERSION} \
+    awscli==${AWSCLI_VERSION}
 
 # Install OpenTofu with checksum verification
 RUN curl -Lo /tmp/tofu_${TOFU_VERSION}_linux_amd64.tar.gz "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_amd64.tar.gz" \
