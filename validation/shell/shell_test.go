@@ -59,12 +59,15 @@ func (s *ShellTestSuite) TestShell() {
 		steveClient := s.client.Steve
 		podList, err := steveClient.SteveType(pods.PodResourceSteveType).NamespacedSteveClient(cattleSystemNameSpace).List(nil)
 		require.NoError(s.T(), err)
+		require.NotEmpty(s.T(), podList.Data, "no pods found in namespace %s", cattleSystemNameSpace)
 
+		var helmPodsFound bool
 		for _, pod := range podList.Data {
 			if !strings.Contains(pod.Name, "helm") {
 				continue
 			}
 
+			helmPodsFound = true
 			podStatus := &corev1.PodStatus{}
 			err = steveV1.ConvertToK8sType(pod.Status, podStatus)
 			require.NoError(s.T(), err)
@@ -75,6 +78,7 @@ func (s *ShellTestSuite) TestShell() {
 
 			assert.Equal(s.T(), string(corev1.PodSucceeded), string(podStatus.Phase), "helm pod %s was not in Succeeded state", pod.Name)
 		}
+		assert.True(s.T(), helmPodsFound, "no helm pods found in namespace %s", cattleSystemNameSpace)
 	})
 }
 
