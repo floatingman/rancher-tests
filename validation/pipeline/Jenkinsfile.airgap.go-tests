@@ -330,11 +330,11 @@ node {
                 }
 
                 catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
-                    junit allowEmptyResults: true, testResults: testConfig.resultsXML
+                    junit allowEmptyResults: true, testResults: "tests/${testConfig.resultsXML}"
                 }
 
                 if (reportArtifacts) {
-                    archiveArtifacts allowEmptyArchive: true, artifacts: "go-test.log, ${testConfig.resultsXML}, ${testConfig.resultsJSON}", fingerprint: true
+                    archiveArtifacts allowEmptyArchive: true, artifacts: "tests/go-test.log, tests/${testConfig.resultsXML}, tests/${testConfig.resultsJSON}", fingerprint: true
                 }
             }
 
