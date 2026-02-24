@@ -33,7 +33,7 @@ node {
     def qaseProjectId = env.QASE_PROJECT_ID ?: ''
     def qaseReporterScript = env.QASE_REPORTER_SCRIPT ?: 'build_qase_reporter_v2.sh'
 
-    property.useWithProperties(['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SSH_PEM_KEY', 'AWS_SSH_PEM_KEY_NAME']) {
+    property.useWithProperties(['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SSH_PEM_KEY', 'AWS_SSH_PEM_KEY_NAME', 'PRIVATE_REGISTRY_URL', 'PRIVATE_REGISTRY_USERNAME', 'PRIVATE_REGISTRY_PASSWORD']) {
         try {
             stage('Checkout') {
                 deleteDir()
@@ -82,7 +82,7 @@ node {
                 def terraformConfig = infrastructure.parseAndSubstituteVars(
                     content: env.TERRAFORM_CONFIG,
                     envVars: [
-                        'AWS_ACCESS_KEY_ID': env.AWS_ACCESS_KEY_ID,
+                        '   ': env.AWS_ACCESS_KEY_ID,
                         'AWS_SECRET_ACCESS_KEY': env.AWS_SECRET_ACCESS_KEY,
                         'HOSTNAME_PREFIX': env.HOSTNAME_PREFIX,
                         'AWS_SSH_PEM_KEY_NAME': env.AWS_SSH_PEM_KEY_NAME
