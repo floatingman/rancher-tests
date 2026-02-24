@@ -171,41 +171,33 @@ node {
                     content: ansibleVars
                 )
 
-                retry(3) {
-                    ansible.runPlaybook(
-                        dir: ansiblePath,
-                        inventory: 'inventory/inventory.yml',
-                        playbook: 'playbooks/setup/setup-ssh-keys.yml'
-                    )
-                }
+                ansible.runPlaybook(
+                    dir: ansiblePath,
+                    inventory: 'inventory/inventory.yml',
+                    playbook: 'playbooks/setup/setup-ssh-keys.yml'
+                )
 
-                retry(3) {
-                    ansible.runPlaybook(
-                        dir: ansiblePath,
-                        inventory: 'inventory/inventory.yml',
-                        playbook: 'playbooks/deploy/rke2-tarball-playbook.yml'
-                    )
-                }
+                ansible.runPlaybook(
+                    dir: ansiblePath,
+                    inventory: 'inventory/inventory.yml',
+                    playbook: 'playbooks/deploy/rke2-tarball-playbook.yml'
+                )
             }
 
             stage('Configure Private Registry') {
-                retry(3) {
-                    ansible.runPlaybook(
-                        dir: ansiblePath,
-                        inventory: 'inventory/inventory.yml',
-                        playbook: 'playbooks/deploy/rke2-registry-config-playbook.yml'
-                    )
-                }
+                ansible.runPlaybook(
+                    dir: ansiblePath,
+                    inventory: 'inventory/inventory.yml',
+                    playbook: 'playbooks/deploy/rke2-registry-config-playbook.yml'
+                )
             }
 
             stage('Deploy Rancher') {
-                retry(3) {
-                    ansible.runPlaybook(
-                        dir: ansiblePath,
-                        inventory: 'inventory/inventory.yml',
-                        playbook: 'playbooks/deploy/rancher-helm-deploy-playbook.yml'
-                    )
-                }
+                ansible.runPlaybook(
+                    dir: ansiblePath,
+                    inventory: 'inventory/inventory.yml',
+                    playbook: 'playbooks/deploy/rancher-helm-deploy-playbook.yml'
+                )
             }
 
             stage('Create Test Config and Inject Admin Token') {
