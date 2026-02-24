@@ -82,7 +82,7 @@ node {
                 def terraformConfig = infrastructure.parseAndSubstituteVars(
                     content: env.TERRAFORM_CONFIG,
                     envVars: [
-                        '   ': env.AWS_ACCESS_KEY_ID,
+                        'AWS_ACCESS_KEY_ID': env.AWS_ACCESS_KEY_ID,
                         'AWS_SECRET_ACCESS_KEY': env.AWS_SECRET_ACCESS_KEY,
                         'HOSTNAME_PREFIX': env.HOSTNAME_PREFIX,
                         'AWS_SSH_PEM_KEY_NAME': env.AWS_SSH_PEM_KEY_NAME
