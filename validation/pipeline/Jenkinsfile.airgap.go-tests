@@ -14,6 +14,14 @@ node {
     def dockerPlatform = config.getDockerPlatform()
     def infraToolsImage = config.getDockerImage('infraTools')
     def infrastructureCleaned = false
+    def destroyInfrastructure = {
+        stage('Destroy Infrastructure') {
+            tofu.selectWorkspace(dir: tofuModulePath, name: workspaceName)
+            tofu.destroy(dir: tofuModulePath, varFile: 'terraform.tfvars', autoApprove: true)
+            tofu.deleteWorkspace(dir: tofuModulePath, name: workspaceName)
+            infrastructureCleaned = true
+        }
+    }
 
     def testsBranch = env.RANCHER_TEST_REPO_BRANCH ?: 'main'
     def testsRepo = env.RANCHER_TEST_REPO_URL ?: 'https://github.com/rancher/tests'
@@ -382,31 +390,13 @@ node {
 
             if ((env.DESTROY_ON_FAILURE ?: 'true').toBoolean() && workspaceName && !infrastructureCleaned) {
                 echo 'DESTROY_ON_FAILURE is enabled. Cleaning up infrastructure...'
-                try {
-                    stage('Destroy Infrastructure') {
-                        tofu.selectWorkspace(dir: tofuModulePath, name: workspaceName)
-                        tofu.destroy(dir: tofuModulePath, varFile: 'terraform.tfvars', autoApprove: true)
-                        tofu.deleteWorkspace(dir: tofuModulePath, name: workspaceName)
-                        infrastructureCleaned = true
-                    }
-                } catch (cleanupErr) {
-                    echo "Cleanup failed: ${cleanupErr.message}"
-                }
+                try { destroyInfrastructure() } catch (cleanupErr) { echo "Cleanup failed: ${cleanupErr.message}" }
             }
             throw err
         } finally {
             if (destroyAfterTests && workspaceName && !infrastructureCleaned) {
                 echo 'Destroying infrastructure after tests (configured)'
-                try {
-                    stage('Destroy Infrastructure') {
-                        tofu.selectWorkspace(dir: tofuModulePath, name: workspaceName)
-                        tofu.destroy(dir: tofuModulePath, varFile: 'terraform.tfvars', autoApprove: true)
-                        tofu.deleteWorkspace(dir: tofuModulePath, name: workspaceName)
-                        infrastructureCleaned = true
-                    }
-                } catch (cleanupErr) {
-                    echo "Destroy-after-tests failed: ${cleanupErr.message}"
-                }
+                try { destroyInfrastructure() } catch (cleanupErr) { echo "Destroy-after-tests failed: ${cleanupErr.message}" }
             } else if (infrastructureCleaned) {
                 echo 'Infrastructure already cleaned up, skipping destroy-after-tests'
             }
