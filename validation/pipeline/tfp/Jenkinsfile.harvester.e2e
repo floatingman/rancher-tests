@@ -263,7 +263,7 @@ node("harvester-vpn-1") {
                             returnStdout: true
                         ).trim()
 
-                        dir("infra-repo/ansible/k3s/default/roles/k3s_install/tasks/") {
+                        dir("infra-repo/ansible/roles/k3s_install/files/") {
                             writeFile file: "k3s_registry.yaml", text: env.INTERNAL_MIRROR_CONFIG
                         }
                         if (!exists) {
