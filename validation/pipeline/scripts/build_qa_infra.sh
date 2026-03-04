@@ -83,6 +83,11 @@ fi
 : "${DOWNSTREAM_TFVARS_FILE:=downstream-cluster.tfvars}"
 
 : "${KUBECONFIG_FILE:=$REPO_ROOT/ansible/rke2/kubeconfig.yaml}"
+# Resolve KUBECONFIG_FILE to an absolute path so Ansible modules work correctly
+# regardless of which directory they resolve relative paths from.
+[[ "${KUBECONFIG_FILE}" != /* ]] && KUBECONFIG_FILE="${REPO_ROOT}/${KUBECONFIG_FILE}"
+export KUBECONFIG_FILE
+
 : "${GENERATED_TFVARS_FILE:=$REPO_ROOT/ansible/rancher/default-ha/generated.tfvars}"
 : "${RANCHER_CLUSTER_MODULE_DIR:=tofu/rancher/cluster}"
 
