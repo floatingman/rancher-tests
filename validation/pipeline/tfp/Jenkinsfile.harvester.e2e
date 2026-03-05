@@ -318,7 +318,6 @@ node("harvester-vpn-1") {
                         docker cp qa-infra-automation/tofu/harvester/modules/vm/cluster.tfvars ${testContainer}-dev:/root/go/src/github.com/rancher/qa-infra-automation/tofu/harvester/modules/vm/cluster.tfvars
                         docker cp config.yml ${testContainer}-dev:/root/go/src/github.com/rancher/qa-infra-automation/config.yml
                         docker cp harvester.yaml ${testContainer}-dev:/root/go/src/github.com/rancher/qa-infra-automation/tofu/harvester/modules/local.yaml
-                        docker cp infra-repo/ansible/roles/k3s_install/files/k3s_registry.yaml ${testContainer}-dev:/root/go/src/github.com/rancher/qa-infra-automation/ansible/roles/k3s_install/files/k3s_registry.yaml
                         """
                     }
 
