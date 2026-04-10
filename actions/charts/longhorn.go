@@ -11,7 +11,7 @@ import (
 	"github.com/rancher/shepherd/extensions/defaults"
 	"github.com/rancher/shepherd/pkg/api/steve/catalog/types"
 	"github.com/rancher/shepherd/pkg/wait"
-	"github.com/rancher/tests/actions/namespaces"
+	"github.com/rancher/tests/actions/kubeapi/namespaces"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 )
@@ -116,18 +116,9 @@ func UninstallLonghornChart(client *rancher.Client, namespace string, clusterID 
 		return err
 	}
 
-	// remove the longhorn namespace that was created
-	steveAdminClient, err := client.Steve.ProxyDownstream(clusterID)
-	if err != nil {
-		return err
-	}
-
-	namespaceObject, err := steveAdminClient.SteveType(namespaces.NamespaceSteveType).ByID(namespace)
-	if err != nil {
-		return err
-	}
-
-	return steveAdminClient.SteveType(namespaces.NamespaceSteveType).Delete(namespaceObject)
+	// remove the longhorn namespace that was created and wait for it to fully terminate
+	// before returning, so subsequent installs don't hit API errors from a still-terminating namespace
+	return namespaces.DeleteNamespace(client, clusterID, namespace)
 }
 
 func waitUninstallation(catalogClient *catalog.Client, namespace string, chartName string) error {

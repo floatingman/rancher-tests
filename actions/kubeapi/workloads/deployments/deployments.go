@@ -144,3 +144,46 @@ func WaitForDeploymentActive(client *rancher.Client, clusterID, namespaceName, d
 
 	return nil
 }
+
+// WatchAndWaitDeploymentActive watches a deployment and waits until it becomes fully available.
+func WatchAndWaitDeploymentActive(client *rancher.Client, clusterID, namespace, deploymentName string) error {
+	adminClient, err := rancher.NewClient(client.RancherConfig.AdminToken, client.Session)
+	if err != nil {
+		return err
+	}
+	adminDynamicClient, err := adminClient.GetDownStreamClusterClient(clusterID)
+	if err != nil {
+		return err
+	}
+
+	adminDeploymentResource := adminDynamicClient.Resource(DeploymentGroupVersionResource).Namespace(namespace)
+
+	watchAppInterface, err := adminDeploymentResource.Watch(context.TODO(), metav1.ListOptions{
+		FieldSelector:  "metadata.name=" + deploymentName,
+		TimeoutSeconds: &defaults.WatchTimeoutSeconds,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to watch deployment %s in namespace %s: %w", deploymentName, namespace, err)
+	}
+
+	err = wait.WatchWait(watchAppInterface, func(event watch.Event) (ready bool, err error) {
+		deployment := &appv1.Deployment{}
+		u := event.Object.(*unstructured.Unstructured)
+		if err := scheme.Scheme.Convert(u, deployment, u.GroupVersionKind()); err != nil {
+			return false, err
+		}
+
+		if deployment.Spec.Replicas != nil &&
+			*deployment.Spec.Replicas == deployment.Status.UpdatedReplicas &&
+			*deployment.Spec.Replicas == deployment.Status.ReadyReplicas &&
+			*deployment.Spec.Replicas == deployment.Status.AvailableReplicas {
+			return true, nil
+		}
+		return false, nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("deployment %s in namespace %s did not become active: %w", deploymentName, namespace, err)
+	}
+	return nil
+}
