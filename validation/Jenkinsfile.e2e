@@ -243,12 +243,12 @@ bootstrap_password: "${RANCHER_BOOTSTRAP_PASSWORD}"
 password: "${RANCHER_ADMIN_PASSWORD}"
 rancher_version: ${RANCHER_VERSION}
 rancher_image_tag: "latest"
-rancher_chart_repo_url: "https://releases.rancher.com/server-charts/alpha"
+rancher_chart_repo_url: "${RANCHER_CHART_REPO_URL}"
 upgrade_mode: false
 rancher_version_upgrade: ">=0.0.0-0"
 rancher_image_tag_upgrade: "latest"
 rancher_chart_repo_upgrade: "rancher-upgrade"
-rancher_chart_upgrade_repo_url: "https://releases.rancher.com/server-charts/alpha"
+rancher_chart_upgrade_repo_url: "${RANCHER_CHART_REPO_URL}"
 k8s_upgrade_mode: false
 kubernetes_version_upgrade: v1.35.2+rke2r1
 server_flags: |
@@ -402,6 +402,16 @@ server_flags: |
                         stage('Configure Ansible Variables') {
                             sh "mkdir -p ${ansiblePath}/inventory/group_vars"
 
+                            // Determine the appropriate Helm chart repository based on RANCHER_VERSION.
+                            // If RANCHER_VERSION looks like a stable semver (e.g., 2.13.2 or v2.13.2), use the stable repo.
+                            // Otherwise (e.g., latest, alpha, rc), default to the alpha repo.
+                            // This can be overridden by explicitly setting RANCHER_CHART_REPO_URL.
+                            def defaultChartRepoUrl = 'https://releases.rancher.com/server-charts/alpha'
+                            if (params.RANCHER_VERSION && params.RANCHER_VERSION ==~ /v?\d+\.\d+\.\d+/) {
+                                defaultChartRepoUrl = 'https://releases.rancher.com/server-charts/stable'
+                            }
+                            def rancherChartRepoUrlParam = params.RANCHER_CHART_REPO_URL ?: defaultChartRepoUrl
+
                             def ansibleVars = infrastructure.parseAndSubstituteVars(
                                 content: params.ANSIBLE_VARIABLES,
                                 envVars: [
@@ -410,7 +420,7 @@ server_flags: |
                                     'RANCHER_ADMIN_PASSWORD':     params.RANCHER_ADMIN_PASSWORD ?: 'rancherrocks',
                                     'RANCHER_VERSION':           params.RANCHER_VERSION,
                                     'RANCHER_IMAGE_TAG':         params.RANCHER_IMAGE_TAG ?: 'head',
-                                    'RANCHER_CHART_REPO_URL':    params.RANCHER_CHART_REPO_URL ?: 'https://releases.rancher.com/server-charts/alpha'
+                                    'RANCHER_CHART_REPO_URL':    rancherChartRepoUrlParam
                                 ]
                             )
 
@@ -482,17 +492,13 @@ rancher_use_bundled_system_charts: true
 
                         // ── Capture Rancher hostname ───────────────────────
                         stage('Output Infrastructure Details') {
-                            try {
-                                def rancherHostname = tofu.getOutputs(
-                                    dir:    tofuModulePath,
-                                    output: 'external_lb_hostname'
-                                )
-                                echo "Rancher Hostname: https://${rancherHostname}"
-                                env.RANCHER_HOSTNAME = rancherHostname
-                                currentBuild.description = "Testing: https://${rancherHostname} | Workspace: ${workspaceName}"
-                            } catch (e) {
-                                echo "Could not retrieve Rancher hostname: ${e.message}"
-                            }
+                            // Rancher hostname is deterministically constructed from HOSTNAME_PREFIX
+                            // matching the value set in rancherVars (rancher_hostname).
+                            // This avoids dependency on Terraform output names that may vary.
+                            def rancherHostname = "${params.HOSTNAME_PREFIX}.qa.rancher.space"
+                            echo "Rancher Hostname: https://${rancherHostname}"
+                            env.RANCHER_HOSTNAME = rancherHostname
+                            currentBuild.description = "Testing: https://${rancherHostname} | Workspace: ${workspaceName}"
                         }
                     }
                 }
@@ -532,7 +538,8 @@ rancher_use_bundled_system_charts: true
                                     -e rancher_token_ttl=${tokenTtl} \
                                     -e rancher_token_description=${tokenDescription} \
                                     -e rancher_token_output_format=json \
-                                    -e rancher_token_output_file=/workspace/rancher-token.json
+                                    -e rancher_token_output_file=/workspace/rancher-token.json \
+                                    -e "rancher_url=https://${params.HOSTNAME_PREFIX}.qa.rancher.space"
                         """
 
                         if (fileExists('rancher-token.json')) {
