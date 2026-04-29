@@ -242,7 +242,6 @@ cert_manager_version: "1.17.4"
 bootstrap_password: "${RANCHER_BOOTSTRAP_PASSWORD}"
 password: "${RANCHER_ADMIN_PASSWORD}"
 rancher_version: ${RANCHER_VERSION}
-rancher_image_tag: "latest"
 rancher_chart_repo_url: "${RANCHER_CHART_REPO_URL}"
 upgrade_mode: false
 rancher_version_upgrade: ">=0.0.0-0"
@@ -519,16 +518,17 @@ rancher_use_bundled_system_charts: true
 
                         // Generate admin token via Ansible playbook
                         // TODO: replace with 'make token' once that target is added upstream
-                        def adminPassword = params.RANCHER_ADMIN_PASSWORD ?: 'rancherrocks'
                         def cattleConfigPath = "/workspace/${env.TESTS_DIR}/cattle-config.yaml"
                         def workspace = pwd()
                         def tokenTtl = env.RANCHER_TOKEN_TTL ?: '0'
                         def tokenDescription = "jenkins-e2e-${env.BUILD_NUMBER}"
 
+                        // Pass secrets via withEnv to avoid Groovy string interpolation exposure
+                        withEnv(["RANCHER_ADMIN_PASSWORD=${params.RANCHER_ADMIN_PASSWORD ?: 'rancherrocks'}"]) {
                         sh """
                             docker run --rm --platform linux/amd64 \
                                 --name generate-token \
-                                -e RANCHER_ADMIN_PASSWORD=${adminPassword} \
+                                -e RANCHER_ADMIN_PASSWORD=\${RANCHER_ADMIN_PASSWORD} \
                                 -e RANCHER_URL=https://${params.HOSTNAME_PREFIX}.qa.rancher.space \
                                 -e ANSIBLE_CONFIG=/workspace/${env.INFRA_DIR}/ansible/ansible.cfg \
                                 -v ${workspace}:/workspace \
@@ -542,6 +542,7 @@ rancher_use_bundled_system_charts: true
                                     -e rancher_token_output_file=/workspace/rancher-token.json \
                                     -e rancher_url=https://${params.HOSTNAME_PREFIX}.qa.rancher.space
                         """
+                        }
 
                         if (fileExists('rancher-token.json')) {
                             def tokenData = readJSON file: 'rancher-token.json'
