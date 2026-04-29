@@ -425,6 +425,44 @@ gitRepo:
             description: 'Test configuration YAML (cattle-config). Token will be injected automatically.'
         )
         booleanParam(
+            name: 'BUILD_DOWNSTREAM_CLUSTER',
+            defaultValue: true,
+            description: 'Provision a downstream Kubernetes cluster through Rancher via tofu/rancher/cluster module'
+        )
+        text(
+            name: 'DOWNSTREAM_CLUSTER_CONFIG',
+            description: 'Terraform tfvars for the downstream cluster created through Rancher (tofu/rancher/cluster module)',
+            defaultValue: '''kubernetes_version = "v1.35.1+rke2r1"
+is_network_policy = false
+machine_pools = [ {
+control_plane_role = true
+worker_role = true
+etcd_role = true
+quantity = 3
+} ]
+create_new = true
+generate_name = "pitdaily-tf"
+node_config = {
+aws_access_key = "\${AWS_ACCESS_KEY_ID}"
+aws_secret_key = "\${AWS_SECRET_ACCESS_KEY}"
+
+aws_ami = "ami-0290e60ec230db1e4"
+aws_ssh_user = "ubuntu"
+aws_instance_type = "t3a.2xlarge"
+aws_security_group = ["rancher-nodes"]
+
+aws_subnet = "subnet-0377a1ca391d51cae"
+aws_availability_zone = "b"
+aws_vpc = "vpc-081cec85dbe35e9bd"
+aws_region    = "us-west-1"
+aws_volume_size   = 50
+aws_volume_type   = "gp3"
+}
+
+cloud_provider = "aws"
+insecure = true'''
+        )
+        booleanParam(
             name: 'REPORT_ARTIFACTS',
             defaultValue: true,
             description: 'Archive test logs and results as build artifacts'
@@ -730,6 +768,92 @@ rancher_use_bundled_system_charts: true
                         }
                     } else {
                         echo 'WARNING: rancher-token.json not found after token generation — token may not have been written to workspace'
+                    }
+                }
+            }
+        }
+
+        stage('Provision Downstream Cluster') {
+            when {
+                allOf {
+                    expression { params.BUILD_DOWNSTREAM_CLUSTER }
+                    expression { params.CATTLE_TEST_CONFIG?.trim() }
+                }
+            }
+            steps {
+                script {
+                    def workspace = pwd()
+                    def downstreamModulePath = "${env.INFRA_DIR}/tofu/rancher/cluster"
+                    def downstreamTfvarsPath = "${downstreamModulePath}/downstream-cluster.tfvars"
+                    def generatedTfvarsPath = "${downstreamModulePath}/generated.tfvars"
+                    def cattleConfigPath = "${env.TESTS_DIR}/cattle-config.yaml"
+
+                    // Substitute environment variables in downstream cluster config
+                    def downstreamConfig = infrastructure.parseAndSubstituteVars(
+                        content: params.DOWNSTREAM_CLUSTER_CONFIG,
+                        envVars: [
+                            'AWS_ACCESS_KEY_ID':     env.AWS_ACCESS_KEY_ID,
+                            'AWS_SECRET_ACCESS_KEY': env.AWS_SECRET_ACCESS_KEY,
+                            'HOSTNAME_PREFIX':       params.HOSTNAME_PREFIX
+                        ]
+                    )
+                    infrastructure.writeConfig(
+                        path:    downstreamTfvarsPath,
+                        content: downstreamConfig
+                    )
+
+                    // Generate tfvars with Rancher admin token for downstream cluster provisioning.
+                    // The token is read from rancher-token.json (written by the previous stage).
+                    def adminToken = ''
+                    if (fileExists('rancher-token.json')) {
+                        adminToken = sh(
+                            script: "docker run --rm -v \$(pwd):/workspace -w /workspace rancher-go-test:latest python3 -c \"import json; d=json.load(open('rancher-token.json')); print(d.get('token', d.get('bearerToken', d.get('accessKey', ''))))\"",
+                            returnStdout: true
+                        ).trim()
+                    }
+                    if (!adminToken) {
+                        echo 'WARNING: No admin token available — using RANCHER_ADMIN_PASSWORD as fallback'
+                        adminToken = params.RANCHER_ADMIN_PASSWORD ?: 'rancherrocks'
+                    }
+
+                    def rancherUrl = "https://${params.HOSTNAME_PREFIX}.qa.rancher.space"
+                    def generatedTfvars = "api_key = \"${adminToken}\"\nrancher_url = \"${rancherUrl}\""
+                    infrastructure.writeConfig(
+                        path:    generatedTfvarsPath,
+                        content: generatedTfvars
+                    )
+
+                    // Provision downstream cluster through Rancher
+                    sh """
+                        docker run --rm --platform linux/amd64 \
+                            -v ${workspace}:/workspace \
+                            -w /workspace/${downstreamModulePath} \
+                            rancher-go-test:latest \
+                            sh -c '
+                                set -e
+                                tofu init -input=false
+                                tofu apply -auto-approve -var-file=downstream-cluster.tfvars -var-file=generated.tfvars
+                            '
+                    """
+
+                    // Get downstream cluster name from tofu output
+                    def downstreamClusterName = sh(
+                        script: """
+                            docker run --rm --platform linux/amd64 \
+                                -v ${workspace}:/workspace \
+                                -w /workspace/${downstreamModulePath} \
+                                rancher-go-test:latest \
+                                sh -c 'tofu output -raw name'
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    echo "Downstream cluster name: ${downstreamClusterName}"
+
+                    // Update cattle-config with downstream cluster name so tests run against it
+                    if (downstreamClusterName && fileExists(cattleConfigPath)) {
+                        sh "./yq e '.rancher.clusterName = \"${downstreamClusterName}\"' -i ${cattleConfigPath}"
+                        echo "Updated cattle-config with clusterName: ${downstreamClusterName}"
                     }
                 }
             }
