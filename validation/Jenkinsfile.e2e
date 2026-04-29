@@ -523,26 +523,26 @@ rancher_use_bundled_system_charts: true
                         def tokenTtl = env.RANCHER_TOKEN_TTL ?: '0'
                         def tokenDescription = "jenkins-e2e-${env.BUILD_NUMBER}"
 
-                        // Pass secrets via withEnv to avoid Groovy string interpolation exposure
-                        withEnv(["RANCHER_ADMIN_PASSWORD=${params.RANCHER_ADMIN_PASSWORD ?: 'rancherrocks'}"]) {
-                            sh """
-                                docker run --rm --platform linux/amd64 \
-                                    --name generate-token \
-                                    -e RANCHER_ADMIN_PASSWORD \
-                                    -e RANCHER_URL=https://${params.HOSTNAME_PREFIX}.qa.rancher.space \
-                                    -e ANSIBLE_CONFIG=/workspace/${env.TESTS_DIR}/ansible/ansible.cfg \
-                                    -v ${workspace}:/workspace \
-                                    -w /workspace/${env.INFRA_DIR}/ansible/rke2/default \
-                                    rancher-go-test:latest \
-                                    ansible-playbook -i inventory/inventory.yml /workspace/${env.INFRA_DIR}/ansible/rancher/token/generate-admin-token.yml \
-                                        -e rancher_cattle_config_file=${cattleConfigPath} \
-                                        -e rancher_token_ttl=${tokenTtl} \
-                                        -e rancher_token_description=${tokenDescription} \
-                                        -e rancher_token_output_format=json \
-                                        -e rancher_token_output_file=/workspace/rancher-token.json \
-                                        -e rancher_url=https://${params.HOSTNAME_PREFIX}.qa.rancher.space
-                            """
-                        }
+                        // RANCHER_ADMIN_PASSWORD is already injected by property.useWithProperties
+                        // via its internal withEnv — pass to Docker with bare -e flag (no value)
+                        // to inherit from the current environment without Groovy interpolation.
+                        sh """
+                            docker run --rm --platform linux/amd64 \
+                                --name generate-token \
+                                -e RANCHER_ADMIN_PASSWORD \
+                                -e RANCHER_URL=https://${params.HOSTNAME_PREFIX}.qa.rancher.space \
+                                -e ANSIBLE_CONFIG=/workspace/${env.TESTS_DIR}/ansible/ansible.cfg \
+                                -v ${workspace}:/workspace \
+                                -w /workspace/${env.INFRA_DIR}/ansible/rke2/default \
+                                rancher-go-test:latest \
+                                ansible-playbook -i inventory/inventory.yml /workspace/${env.INFRA_DIR}/ansible/rancher/token/generate-admin-token.yml \
+                                    -e rancher_cattle_config_file=${cattleConfigPath} \
+                                    -e rancher_token_ttl=${tokenTtl} \
+                                    -e rancher_token_description=${tokenDescription} \
+                                    -e rancher_token_output_format=json \
+                                    -e rancher_token_output_file=/workspace/rancher-token.json \
+                                    -e rancher_url=https://${params.HOSTNAME_PREFIX}.qa.rancher.space
+                        """
 
                         if (fileExists('rancher-token.json')) {
                             def tokenData = readJSON file: 'rancher-token.json'
