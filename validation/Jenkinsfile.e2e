@@ -545,13 +545,19 @@ rancher_use_bundled_system_charts: true
                     echo "Token file present after generation: ${tokenFileExists}"
 
                     if (tokenFileExists) {
-                        def tokenData = readJSON file: 'rancher-token.json'
-                        ['token', 'bearerToken', 'accessKey', 'secretKey', 'value'].each { secretField ->
-                            if (tokenData instanceof Map && tokenData.containsKey(secretField)) {
-                                tokenData.remove(secretField)
-                            }
-                        }
-                        writeJSON file: 'rancher-token-metadata.json', json: tokenData, pretty: 2
+                        // Redact secret fields from token JSON via Docker container.
+                        // Pipeline Utility Steps plugin (readJSON/writeJSON) is not installed,
+                        // and python3 is not available on the Jenkins agent host.
+                        sh """
+                            docker run --rm \
+                                -v \$(pwd):/workspace -w /workspace \
+                                rancher-go-test:latest \
+                                python3 -c \\
+                                    "import json;
+                                     d=json.load(open('rancher-token.json'));
+                                     [d.pop(k,None) for k in ('token','bearerToken','accessKey','secretKey','value')];
+                                     json.dump(d,open('rancher-token-metadata.json','w'),indent=2)"
+                        """
                         archiveArtifacts artifacts: 'rancher-token-metadata.json', fingerprint: true
                         echo 'Archived redacted token metadata: rancher-token-metadata.json'
 
