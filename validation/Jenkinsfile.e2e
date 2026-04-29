@@ -477,7 +477,31 @@ rancher_use_bundled_system_charts: true
 
                         // ── Deploy RKE2 cluster ────────────────────────────
                         stage('Deploy RKE2 Cluster') {
-                            infra.cluster(env.INFRA_DIR, workspaceName)
+                            try {
+                                infra.cluster(env.INFRA_DIR, workspaceName)
+                            } catch (e) {
+                                echo "Deploy RKE2 Cluster failed: ${e.message}"
+
+                                // Diagnostics: capture host-specific worker connectivity/state before rethrow
+                                def workspace = pwd()
+                                sh """
+                                    set +e
+                                    docker run --rm --platform linux/amd64 \
+                                        -v ${workspace}:/workspace \
+                                        -w /workspace/${ansiblePath} \
+                                        rancher-infra-tools:latest \
+                                        sh -c '
+                                            echo "=== RKE2 diagnostics: inventory graph ===";
+                                            ansible-inventory -i inventory/inventory.yml --graph || true;
+                                            echo "=== RKE2 diagnostics: worker-0 ping ===";
+                                            ansible -i inventory/inventory.yml worker-0 -m ping -vv || true;
+                                            echo "=== RKE2 diagnostics: worker-0 facts ===";
+                                            ansible -i inventory/inventory.yml worker-0 -m setup -a "filter=ansible_default_ipv4" || true
+                                        '
+                                """
+
+                                throw e
+                            }
                         }
 
                         // ── Deploy Rancher ─────────────────────────────────
