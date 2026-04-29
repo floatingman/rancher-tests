@@ -136,7 +136,7 @@ pipeline {
         )
         string(
             name: 'RANCHER_CHART_REPO_URL',
-            defaultValue: 'https://releases.rancher.com/server-charts/alpha',
+            defaultValue: 'https://releases.rancher.com/server-charts/latest',
             description: 'Rancher Helm chart repository URL'
         )
         string(
@@ -206,7 +206,7 @@ pipeline {
             description: 'Terraform tfvars for the cluster_nodes module (non-airgap)',
             defaultValue: '''aws_access_key = "${AWS_ACCESS_KEY_ID}"
 aws_secret_key = "${AWS_SECRET_ACCESS_KEY}"
-aws_ami = "ami-0e01311d1f112d4d0"
+aws_ami = "ami-01b0ef1ab7898646f"
 instance_type = "t3a.2xlarge"
 aws_security_group = ["sg-07a98dc3474d4eb9f"]
 aws_subnet = "subnet-0377a1ca391d51cae"
@@ -220,6 +220,7 @@ aws_route53_zone = "qa.rancher.space"
 aws_ssh_user = "ec2-user"
 aws_vpc = "vpc-081cec85dbe35e9bd"
 public_ssh_key = "ssh_public_key.pub"
+private_ssh_key = "~/.ssh/\${AWS_SSH_PEM_KEY_NAME}"
 nodes = [
     {
         count = 3
@@ -242,12 +243,13 @@ cert_manager_version: "1.17.4"
 bootstrap_password: "${RANCHER_BOOTSTRAP_PASSWORD}"
 password: "${RANCHER_ADMIN_PASSWORD}"
 rancher_version: ${RANCHER_VERSION}
+rancher_image_tag: ${RANCHER_IMAGE_TAG}
 rancher_chart_repo_url: "${RANCHER_CHART_REPO_URL}"
 upgrade_mode: false
 rancher_version_upgrade: ">=0.0.0-0"
 rancher_image_tag_upgrade: "latest"
 rancher_chart_repo_upgrade: "rancher-upgrade"
-rancher_chart_upgrade_repo_url: "${RANCHER_CHART_REPO_URL}"
+rancher_chart_upgrade_repo_url: "https://releases.rancher.com/server-charts/alpha"
 k8s_upgrade_mode: false
 kubernetes_version_upgrade: v1.35.2+rke2r1
 server_flags: |
@@ -257,7 +259,169 @@ server_flags: |
         // ── Test parameters ────────────────────────────────────
         text(
             name: 'CATTLE_TEST_CONFIG',
-            defaultValue: '',
+            defaultValue: '''awsNodeTemplate:
+    accessKey: "\${AWS_ACCESS_KEY_ID}"
+    ami: ami-0b8e245d9e93c05fa
+    blockDurationMinutes: 0
+    encryptEbsVolume: false
+    httpEndpoint: enabled
+    httpTokens: optional
+    iamInstanceProfile: EngineeringUsersUS
+    insecureTransport: false
+    instanceType: t3.xlarge
+    keypairName: jenkins-elliptic-validation.pem
+    monitoring: false
+    privateAddressOnly: false
+    region: us-east-2
+    requestSpotInstance: true
+    retries: 5
+    rootSize: 16
+    secretKey: "\${AWS_SECRET_ACCESS_KEY}"
+    securityGroup:
+    - qa_default_ipv4
+    securityGroupReadonly: false
+    spotPrice: 0.5
+    sshUser: ubuntu
+    subnetId: subnet-ee8cac86
+    type: amazonec2Config
+    useEbsOptimizedInstance: false
+    usePrivateAddress: false
+    volumeType: gp3
+    vpcId: vpc-bfccf4d7
+    zone: a
+awsMachineConfigs:
+    region: us-east-2
+    awsMachineConfig:
+    - ami: ami-0b8e245d9e93c05fa
+      roles: ["etcd","controlplane","worker"]
+      instanceType: t3a.xlarge
+      retries: "5"
+      rootSize: "100"
+      securityGroup:
+      - qa_default_ipv4
+      sshUser: ubuntu
+      volumeType: gp3
+      vpcId: vpc-bfccf4d7
+      zone: a
+awsCredentials:
+    accessKey: "\${AWS_ACCESS_KEY_ID}"
+    defaultRegion: us-east-2
+    secretKey: "\${AWS_SECRET_ACCESS_KEY}"
+awsEC2Configs:
+    awsAMI: ami-02ec473a7c3a2db48
+    awsAccessKeyID: "\${AWS_ACCESS_KEY_ID}"
+    awsSecretAccessKey: "\${AWS_SECRET_ACCESS_KEY}"
+    region: us-east-2
+    awsEC2Config:
+    - awsAMI: ami-053835e36b16f97d0
+      awsCICDInstanceTag: rancher-validation
+      awsIAMProfile: EngineeringUsersUS
+      awsSSHKeyName: jenkins-elliptic-validation.pem
+      awsSecurityGroups:
+      - sg-08e8243a8cfbea8a0 # qa_default_ipv4
+      awsUser: ec2-user
+      instanceType: t3a.2xlarge
+      isWindows: false
+      volumeSize: 50
+      roles: [etcd, contolplane, worker]
+provisioningInput:
+    psact: "rancher-privileged"
+    cni:
+    - calico
+    nodeProviders:
+    - ec2
+    machinePools:
+    - machinePoolConfig:
+        etcd: true
+        controlplane: false
+        worker: false
+        quantity: 1
+    - machinePoolConfig:
+        etcd: false
+        controlplane: true
+        worker: false
+        quantity: 1
+    - machinePoolConfig:
+        etcd: false
+        controlplane: false
+        worker: true
+        quantity: 1
+    nodePools:
+    - nodeRoles:
+        etcd: true
+        controlplane: false
+        worker: false
+        quantity: 1
+    - nodeRoles:
+        etcd: false
+        controlplane: true
+        worker: false
+        quantity: 1
+    - nodeRoles:
+        etcd: false
+        controlplane: false
+        worker: true
+        quantity: 1
+    providers:
+    - aws
+corralRancherHA:
+    name: rancherha
+sshPath:
+    sshPath: "/root/go/src/github.com/rancher/tests/validation/.ssh"
+flags:
+    desiredflags: InstallRancher|Short
+qaInfraAutomation:
+    ansible:
+        configPath: ansible/rancher/downstream/custom_cluster/ansible.cfg
+    aws:
+        accessKey: "\${AWS_ACCESS_KEY_ID}"
+        airgapSetup: false
+        ami: ami-05bca07e340ee4f45
+        hostnamePrefix: tf-pit-daily
+        instanceType: t3a.2xlarge
+        nodes:
+        - count: 1
+          role:
+            - etcd
+            - cp
+            - worker
+        proxySetup: false
+        region: us-east-2
+        route53Zone: qa.rancher.space
+        secretKey: "\${AWS_SECRET_ACCESS_KEY}"
+        securityGroups:
+            - sg-08e8243a8cfbea8a0
+        awsSSHKeyName: "jenkins-elliptic-validation"
+        sshUser: ec2-user
+        subnet: subnet-ee8cac86
+        volumeSize: 50
+        volumeType: gp3
+        vpc: vpc-bfccf4d7
+    customCluster:
+        generateName: tf-pit-daily
+        harden: true
+        isNetworkPolicy: false
+        kubernetesVersion: v1.34.4+k3s1
+        psa: rancher-privileged
+        nodes:
+            - count: 1
+              role: [etcd, cp, worker]
+    repoPath: /infratest
+    workspace: tf-pit-daily
+rancher:
+    host: \${HOSTNAME_PREFIX}.qa.rancher.space
+    adminPassword: "\${ADMIN_PASSWORD}"
+    insecure: true
+    cleanup: false
+gitRepo:
+    metadata:
+        name: "dynamic-test-1"
+        namespace: "fleet-default"
+    spec:
+        repo: https://github.com/rancher/fleet-examples
+        branch: master
+        paths:
+        - simple''',
             description: 'Test configuration YAML (cattle-config). Token will be injected automatically.'
         )
         booleanParam(
