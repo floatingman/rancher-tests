@@ -507,56 +507,55 @@ rancher_use_bundled_system_charts: true
         stage('Create Test Config and Inject Admin Token') {
             steps {
                 script {
-                    property.useWithProperties([
-                        'AWS_ACCESS_KEY_ID',
-                        'AWS_SECRET_ACCESS_KEY'
-                    ]) {
-                        // Create cattle-config if provided
-                        if (params.CATTLE_TEST_CONFIG?.trim()) {
-                            writeFile file: "${env.TESTS_DIR}/cattle-config.yaml", text: params.CATTLE_TEST_CONFIG.trim() + '\n'
-                        }
+                    // Create cattle-config if provided
+                    if (params.CATTLE_TEST_CONFIG?.trim()) {
+                        writeFile file: "${env.TESTS_DIR}/cattle-config.yaml", text: params.CATTLE_TEST_CONFIG.trim() + '\n'
+                    }
 
-                        // Generate admin token via Ansible playbook
-                        // TODO: replace with 'make token' once that target is added upstream
-                        def cattleConfigPath = "/workspace/${env.TESTS_DIR}/cattle-config.yaml"
-                        def workspace = pwd()
-                        def tokenTtl = env.RANCHER_TOKEN_TTL ?: '0'
-                        def tokenDescription = "jenkins-e2e-${env.BUILD_NUMBER}"
+                    // Generate admin token via Ansible playbook
+                    // TODO: replace with 'make token' once that target is added upstream
+                    def cattleConfigPath = "/workspace/${env.TESTS_DIR}/cattle-config.yaml"
+                    def workspace = pwd()
+                    def tokenTtl = env.RANCHER_TOKEN_TTL ?: '0'
+                    def tokenDescription = "jenkins-e2e-${env.BUILD_NUMBER}"
 
-                        // RANCHER_ADMIN_PASSWORD is already injected by property.useWithProperties
-                        // via its internal withEnv — pass to Docker with bare -e flag (no value)
-                        // to inherit from the current environment without Groovy interpolation.
-                        sh """
-                            docker run --rm --platform linux/amd64 \
-                                --name generate-token \
-                                -e RANCHER_ADMIN_PASSWORD \
-                                -e RANCHER_URL=https://${params.HOSTNAME_PREFIX}.qa.rancher.space \
-                                -e ANSIBLE_CONFIG=/workspace/${env.TESTS_DIR}/ansible/ansible.cfg \
-                                -v ${workspace}:/workspace \
-                                -w /workspace/${env.INFRA_DIR}/ansible/rke2/default \
-                                rancher-go-test:latest \
-                                ansible-playbook -i inventory/inventory.yml /workspace/${env.INFRA_DIR}/ansible/rancher/token/generate-admin-token.yml \
-                                    -e rancher_cattle_config_file=${cattleConfigPath} \
-                                    -e rancher_token_ttl=${tokenTtl} \
-                                    -e rancher_token_description=${tokenDescription} \
-                                    -e rancher_token_output_format=json \
-                                    -e rancher_token_output_file=/workspace/rancher-token.json \
-                                    -e rancher_url=https://${params.HOSTNAME_PREFIX}.qa.rancher.space
-                        """
+                    // Diagnostic logging to validate env + output path before token generation
+                    echo "Token generation context: workspace=${workspace}, config=${cattleConfigPath}"
+                    echo "RANCHER_ADMIN_PASSWORD present in env: ${env.RANCHER_ADMIN_PASSWORD ? 'yes' : 'no'}"
 
-                        if (fileExists('rancher-token.json')) {
-                            def tokenData = readJSON file: 'rancher-token.json'
-                            ['token', 'bearerToken', 'accessKey', 'secretKey', 'value'].each { secretField ->
-                                if (tokenData instanceof Map && tokenData.containsKey(secretField)) {
-                                    tokenData.remove(secretField)
-                                }
+                    sh """
+                        docker run --rm --platform linux/amd64 \
+                            --name generate-token \
+                            -e RANCHER_ADMIN_PASSWORD \
+                            -e RANCHER_URL=https://${params.HOSTNAME_PREFIX}.qa.rancher.space \
+                            -e ANSIBLE_CONFIG=/workspace/${env.TESTS_DIR}/ansible/ansible.cfg \
+                            -v ${workspace}:/workspace \
+                            -w /workspace/${env.INFRA_DIR}/ansible/rke2/default \
+                            rancher-go-test:latest \
+                            ansible-playbook -i inventory/inventory.yml /workspace/${env.INFRA_DIR}/ansible/rancher/token/generate-admin-token.yml \
+                                -e rancher_cattle_config_file=${cattleConfigPath} \
+                                -e rancher_token_ttl=${tokenTtl} \
+                                -e rancher_token_description=${tokenDescription} \
+                                -e rancher_token_output_format=json \
+                                -e rancher_token_output_file=/workspace/rancher-token.json \
+                                -e rancher_url=https://${params.HOSTNAME_PREFIX}.qa.rancher.space
+                    """
+
+                    def tokenFileExists = fileExists('rancher-token.json')
+                    echo "Token file present after generation: ${tokenFileExists}"
+
+                    if (tokenFileExists) {
+                        def tokenData = readJSON file: 'rancher-token.json'
+                        ['token', 'bearerToken', 'accessKey', 'secretKey', 'value'].each { secretField ->
+                            if (tokenData instanceof Map && tokenData.containsKey(secretField)) {
+                                tokenData.remove(secretField)
                             }
-                            writeJSON file: 'rancher-token-metadata.json', json: tokenData, pretty: 2
-                            archiveArtifacts artifacts: 'rancher-token-metadata.json', fingerprint: true
-                            echo 'Archived redacted token metadata: rancher-token-metadata.json'
-                        } else {
-                            echo 'WARNING: rancher-token.json not found after token generation — token may not have been written to workspace'
                         }
+                        writeJSON file: 'rancher-token-metadata.json', json: tokenData, pretty: 2
+                        archiveArtifacts artifacts: 'rancher-token-metadata.json', fingerprint: true
+                        echo 'Archived redacted token metadata: rancher-token-metadata.json'
+                    } else {
+                        echo 'WARNING: rancher-token.json not found after token generation — token may not have been written to workspace'
                     }
                 }
             }
