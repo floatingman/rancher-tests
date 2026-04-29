@@ -525,23 +525,23 @@ rancher_use_bundled_system_charts: true
 
                         // Pass secrets via withEnv to avoid Groovy string interpolation exposure
                         withEnv(["RANCHER_ADMIN_PASSWORD=${params.RANCHER_ADMIN_PASSWORD ?: 'rancherrocks'}"]) {
-                        sh """
-                            docker run --rm --platform linux/amd64 \
-                                --name generate-token \
-                                -e RANCHER_ADMIN_PASSWORD=\${RANCHER_ADMIN_PASSWORD} \
-                                -e RANCHER_URL=https://${params.HOSTNAME_PREFIX}.qa.rancher.space \
-                                -e ANSIBLE_CONFIG=/workspace/${env.INFRA_DIR}/ansible/ansible.cfg \
-                                -v ${workspace}:/workspace \
-                                -w /workspace/${env.INFRA_DIR}/ansible/rke2/default \
-                                rancher-go-test:latest \
-                                ansible-playbook -i inventory/inventory.yml /workspace/${env.INFRA_DIR}/ansible/rancher/token/generate-admin-token.yml \
-                                    -e rancher_cattle_config_file=${cattleConfigPath} \
-                                    -e rancher_token_ttl=${tokenTtl} \
-                                    -e rancher_token_description=${tokenDescription} \
-                                    -e rancher_token_output_format=json \
-                                    -e rancher_token_output_file=/workspace/rancher-token.json \
-                                    -e rancher_url=https://${params.HOSTNAME_PREFIX}.qa.rancher.space
-                        """
+                            sh """
+                                docker run --rm --platform linux/amd64 \
+                                    --name generate-token \
+                                    -e RANCHER_ADMIN_PASSWORD \
+                                    -e RANCHER_URL=https://${params.HOSTNAME_PREFIX}.qa.rancher.space \
+                                    -e ANSIBLE_CONFIG=/workspace/${env.TESTS_DIR}/ansible/ansible.cfg \
+                                    -v ${workspace}:/workspace \
+                                    -w /workspace/${env.INFRA_DIR}/ansible/rke2/default \
+                                    rancher-go-test:latest \
+                                    ansible-playbook -i inventory/inventory.yml /workspace/${env.INFRA_DIR}/ansible/rancher/token/generate-admin-token.yml \
+                                        -e rancher_cattle_config_file=${cattleConfigPath} \
+                                        -e rancher_token_ttl=${tokenTtl} \
+                                        -e rancher_token_description=${tokenDescription} \
+                                        -e rancher_token_output_format=json \
+                                        -e rancher_token_output_file=/workspace/rancher-token.json \
+                                        -e rancher_url=https://${params.HOSTNAME_PREFIX}.qa.rancher.space
+                            """
                         }
 
                         if (fileExists('rancher-token.json')) {
@@ -554,6 +554,8 @@ rancher_use_bundled_system_charts: true
                             writeJSON file: 'rancher-token-metadata.json', json: tokenData, pretty: 2
                             archiveArtifacts artifacts: 'rancher-token-metadata.json', fingerprint: true
                             echo 'Archived redacted token metadata: rancher-token-metadata.json'
+                        } else {
+                            echo 'WARNING: rancher-token.json not found after token generation — token may not have been written to workspace'
                         }
                     }
                 }
