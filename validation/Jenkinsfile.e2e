@@ -669,6 +669,9 @@ rancher_use_bundled_system_charts: true
         }
 
         stage('Create Test Config and Inject Admin Token') {
+            when {
+                expression { params.CATTLE_TEST_CONFIG?.trim() }
+            }
             steps {
                 script {
                     // Create cattle-config if provided
@@ -733,6 +736,9 @@ rancher_use_bundled_system_charts: true
         }
 
         stage('Run Test Validations') {
+            when {
+                expression { params.CATTLE_TEST_CONFIG?.trim() }
+            }
             steps {
                 script {
                     def workspace = pwd()
