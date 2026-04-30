@@ -442,6 +442,9 @@ quantity = 3
 } ]
 create_new = true
 generate_name = "pitdaily-tf"
+machine_global_config = {
+cni = "calico"
+}
 node_config = {
 aws_access_key = "\${AWS_ACCESS_KEY_ID}"
 aws_secret_key = "\${AWS_SECRET_ACCESS_KEY}"
