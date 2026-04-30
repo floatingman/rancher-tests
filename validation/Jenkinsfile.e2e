@@ -260,7 +260,7 @@ server_flags: |
         text(
             name: 'CATTLE_TEST_CONFIG',
             defaultValue: '''awsNodeTemplate:
-    accessKey: "\${AWS_ACCESS_KEY_ID}"
+    accessKey: ${AWS_ACCESS_KEY_ID}
     ami: ami-0b8e245d9e93c05fa
     blockDurationMinutes: 0
     encryptEbsVolume: false
@@ -276,7 +276,7 @@ server_flags: |
     requestSpotInstance: true
     retries: 5
     rootSize: 16
-    secretKey: "\${AWS_SECRET_ACCESS_KEY}"
+    secretKey: ${AWS_SECRET_ACCESS_KEY}
     securityGroup:
     - qa_default_ipv4
     securityGroupReadonly: false
@@ -304,13 +304,13 @@ awsMachineConfigs:
       vpcId: vpc-bfccf4d7
       zone: a
 awsCredentials:
-    accessKey: "\${AWS_ACCESS_KEY_ID}"
+    accessKey: ${AWS_ACCESS_KEY_ID}
     defaultRegion: us-east-2
-    secretKey: "\${AWS_SECRET_ACCESS_KEY}"
+    secretKey: ${AWS_SECRET_ACCESS_KEY}
 awsEC2Configs:
     awsAMI: ami-02ec473a7c3a2db48
-    awsAccessKeyID: "\${AWS_ACCESS_KEY_ID}"
-    awsSecretAccessKey: "\${AWS_SECRET_ACCESS_KEY}"
+    awsAccessKeyID: ${AWS_ACCESS_KEY_ID}
+    awsSecretAccessKey: ${AWS_SECRET_ACCESS_KEY}
     region: us-east-2
     awsEC2Config:
     - awsAMI: ami-053835e36b16f97d0
@@ -374,7 +374,7 @@ qaInfraAutomation:
     ansible:
         configPath: ansible/rancher/downstream/custom_cluster/ansible.cfg
     aws:
-        accessKey: "\${AWS_ACCESS_KEY_ID}"
+        accessKey: ${AWS_ACCESS_KEY_ID}
         airgapSetup: false
         ami: ami-05bca07e340ee4f45
         hostnamePrefix: tf-pit-daily
@@ -388,7 +388,7 @@ qaInfraAutomation:
         proxySetup: false
         region: us-east-2
         route53Zone: qa.rancher.space
-        secretKey: "\${AWS_SECRET_ACCESS_KEY}"
+        secretKey: ${AWS_SECRET_ACCESS_KEY}
         securityGroups:
             - sg-08e8243a8cfbea8a0
         awsSSHKeyName: "jenkins-elliptic-validation"
@@ -409,8 +409,8 @@ qaInfraAutomation:
     repoPath: /infratest
     workspace: tf-pit-daily
 rancher:
-    host: \${HOSTNAME_PREFIX}.qa.rancher.space
-    adminPassword: "\${ADMIN_PASSWORD}"
+    host: ${HOSTNAME_PREFIX}.qa.rancher.space
+    adminPassword: ${ADMIN_PASSWORD}
     insecure: true
     cleanup: false
 gitRepo:
