@@ -445,6 +445,8 @@ generate_name = "pitdaily-tf"
 node_config = {
 aws_access_key = "\${AWS_ACCESS_KEY_ID}"
 aws_secret_key = "\${AWS_SECRET_ACCESS_KEY}"
+access_key     = "\${AWS_ACCESS_KEY_ID}"
+secret_key     = "\${AWS_SECRET_ACCESS_KEY}"
 
 aws_ami = "ami-01b0ef1ab7898646f"
 aws_ssh_user = "ec2-user"
