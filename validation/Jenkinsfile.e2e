@@ -801,77 +801,84 @@ rancher_use_bundled_system_charts: true
             }
             steps {
                 script {
-                    def workspace = pwd()
-                    def downstreamModulePath = "${env.INFRA_DIR}/tofu/rancher/cluster"
-                    def downstreamTfvarsPath = "${downstreamModulePath}/downstream-cluster.tfvars"
-                    def generatedTfvarsPath = "${downstreamModulePath}/generated.tfvars"
-                    def cattleConfigPath = "${env.TESTS_DIR}/cattle-config.yaml"
+                    property.useWithProperties([
+                        'AWS_ACCESS_KEY_ID',
+                        'AWS_SECRET_ACCESS_KEY'
+                    ]) {
+                        def workspace = pwd()
+                        def downstreamModulePath = "${env.INFRA_DIR}/tofu/rancher/cluster"
+                        def downstreamTfvarsPath = "${downstreamModulePath}/downstream-cluster.tfvars"
+                        def generatedTfvarsPath = "${downstreamModulePath}/generated.tfvars"
+                        def cattleConfigPath = "${env.TESTS_DIR}/cattle-config.yaml"
 
-                    // Substitute environment variables in downstream cluster config
-                    def downstreamConfig = infrastructure.parseAndSubstituteVars(
-                        content: params.DOWNSTREAM_CLUSTER_CONFIG,
-                        envVars: [
-                            'AWS_ACCESS_KEY_ID':     env.AWS_ACCESS_KEY_ID,
-                            'AWS_SECRET_ACCESS_KEY': env.AWS_SECRET_ACCESS_KEY,
-                            'HOSTNAME_PREFIX':       params.HOSTNAME_PREFIX
-                        ]
-                    )
-                    infrastructure.writeConfig(
-                        path:    downstreamTfvarsPath,
-                        content: downstreamConfig
-                    )
+                        // Substitute environment variables in downstream cluster config
+                        // Must be inside property.useWithProperties so that
+                        // env.AWS_ACCESS_KEY_ID / env.AWS_SECRET_ACCESS_KEY are
+                        // populated from Jenkins credentials store.
+                        def downstreamConfig = infrastructure.parseAndSubstituteVars(
+                            content: params.DOWNSTREAM_CLUSTER_CONFIG,
+                            envVars: [
+                                'AWS_ACCESS_KEY_ID':     env.AWS_ACCESS_KEY_ID,
+                                'AWS_SECRET_ACCESS_KEY': env.AWS_SECRET_ACCESS_KEY,
+                                'HOSTNAME_PREFIX':       params.HOSTNAME_PREFIX
+                            ]
+                        )
+                        infrastructure.writeConfig(
+                            path:    downstreamTfvarsPath,
+                            content: downstreamConfig
+                        )
 
-                    // Generate tfvars with Rancher admin token for downstream cluster provisioning.
-                    // The token is read from rancher-token.json (written by the previous stage).
-                    def adminToken = ''
-                    if (fileExists('rancher-token.json')) {
-                        adminToken = sh(
-                            script: "docker run --rm -v \$(pwd):/workspace -w /workspace rancher-go-test:latest python3 -c \"import json; d=json.load(open('rancher-token.json')); print(d.get('token', d.get('bearerToken', d.get('accessKey', ''))))\"",
-                            returnStdout: true
-                        ).trim()
-                    }
-                    if (!adminToken) {
-                        echo 'WARNING: No admin token available — using RANCHER_ADMIN_PASSWORD as fallback'
-                        adminToken = params.RANCHER_ADMIN_PASSWORD ?: 'rancherrocks'
-                    }
+                        // Generate tfvars with Rancher admin token for downstream cluster provisioning.
+                        // The token is read from rancher-token.json (written by the previous stage).
+                        def adminToken = ''
+                        if (fileExists('rancher-token.json')) {
+                            adminToken = sh(
+                                script: "docker run --rm -v \$(pwd):/workspace -w /workspace rancher-go-test:latest python3 -c \"import json; d=json.load(open('rancher-token.json')); print(d.get('token', d.get('bearerToken', d.get('accessKey', ''))))\"",
+                                returnStdout: true
+                            ).trim()
+                        }
+                        if (!adminToken) {
+                            echo 'WARNING: No admin token available — using RANCHER_ADMIN_PASSWORD as fallback'
+                            adminToken = params.RANCHER_ADMIN_PASSWORD ?: 'rancherrocks'
+                        }
 
-                    def rancherUrl = "https://${params.HOSTNAME_PREFIX}.qa.rancher.space"
-                    def generatedTfvars = "api_key = \"${adminToken}\"\nfqdn = \"${rancherUrl}\""
-                    infrastructure.writeConfig(
-                        path:    generatedTfvarsPath,
-                        content: generatedTfvars
-                    )
+                        def rancherUrl = "https://${params.HOSTNAME_PREFIX}.qa.rancher.space"
+                        def generatedTfvars = "api_key = \"${adminToken}\"\nfqdn = \"${rancherUrl}\""
+                        infrastructure.writeConfig(
+                            path:    generatedTfvarsPath,
+                            content: generatedTfvars
+                        )
 
-                    // Provision downstream cluster through Rancher
-                    def tofuApplySuccess = true
-                    try {
-                        sh """
-                            docker run --rm --platform linux/amd64 \
-                                -v ${workspace}:/workspace \
-                                -w /workspace/${downstreamModulePath} \
-                                rancher-go-test:latest \
-                                sh -c '
-                                    set -e
-                                    tofu init -input=false
-                                    tofu apply -auto-approve -var-file=downstream-cluster.tfvars -var-file=generated.tfvars
-                                '
-                        """
-                    } catch (tofuErr) {
-                        tofuApplySuccess = false
-                        echo "WARNING: tofu apply failed: ${tofuErr.message}"
+                        // Provision downstream cluster through Rancher
+                        def tofuApplySuccess = true
+                        try {
+                            sh """
+                                docker run --rm --platform linux/amd64 \
+                                    -v ${workspace}:/workspace \
+                                    -w /workspace/${downstreamModulePath} \
+                                    rancher-go-test:latest \
+                                    sh -c '
+                                        set -e
+                                        tofu init -input=false
+                                        tofu apply -auto-approve -var-file=downstream-cluster.tfvars -var-file=generated.tfvars
+                                    '
+                            """
+                        } catch (tofuErr) {
+                            tofuApplySuccess = false
+                            echo "WARNING: tofu apply failed: ${tofuErr.message}"
 
-                        // ── Diagnostics: query Rancher API for cluster status ──
-                        echo '--- Downstream cluster diagnostics ---'
-                        sh """
-                            docker run --rm --platform linux/amd64 \
-                                -v ${workspace}:/workspace \
-                                -w /workspace/${downstreamModulePath} \
-                                rancher-go-test:latest \
-                                sh -c 'tofu state list 2>/dev/null || true'
-                        """
+                            // ── Diagnostics: query Rancher API for cluster status ──
+                            echo '--- Downstream cluster diagnostics ---'
+                            sh """
+                                docker run --rm --platform linux/amd64 \
+                                    -v ${workspace}:/workspace \
+                                    -w /workspace/${downstreamModulePath} \
+                                    rancher-go-test:latest \
+                                    sh -c 'tofu state list 2>/dev/null || true'
+                            """
 
-                        // Query Rancher API for cluster conditions
-                        writeFile file: 'diag-cluster-status.py', text: """#!/usr/bin/env python3
+                            // Query Rancher API for cluster conditions
+                            writeFile file: 'diag-cluster-status.py', text: """#!/usr/bin/env python3
 import urllib.request, json, ssl, sys, os
 ctx = ssl.create_default_context()
 ctx.check_hostname = False
@@ -899,54 +906,55 @@ try:
 except Exception as e:
     print(f"  Error querying Rancher API: {e}")
 """
-                        sh """
-                            docker run --rm --platform linux/amd64 \
-                                -v ${workspace}:/workspace \
-                                -w /workspace \
-                                rancher-go-test:latest \
-                                python3 /workspace/diag-cluster-status.py || true
-                        """
-                        echo '--- End diagnostics ---'
-                    }
-
-                    // Get downstream cluster name from tofu output
-                    def downstreamClusterName = ''
-                    if (tofuApplySuccess) {
-                        downstreamClusterName = sh(
-                            script: """
+                            sh """
                                 docker run --rm --platform linux/amd64 \
                                     -v ${workspace}:/workspace \
-                                    -w /workspace/${downstreamModulePath} \
+                                    -w /workspace \
                                     rancher-go-test:latest \
-                                    sh -c 'tofu output -raw name'
-                            """,
-                            returnStdout: true
-                        ).trim()
-                    } else {
-                        // Try to extract cluster name from tofu state even on failure
-                        downstreamClusterName = sh(
-                            script: """
-                                docker run --rm --platform linux/amd64 \
-                                    -v ${workspace}:/workspace \
-                                    -w /workspace/${downstreamModulePath} \
-                                    rancher-go-test:latest \
-                                    sh -c 'tofu output -raw name 2>/dev/null || true'
-                            """,
-                            returnStdout: true
-                        ).trim()
-                    }
+                                    python3 /workspace/diag-cluster-status.py || true
+                            """
+                            echo '--- End diagnostics ---'
+                        }
 
-                    echo "Downstream cluster name: ${downstreamClusterName}"
+                        // Get downstream cluster name from tofu output
+                        def downstreamClusterName = ''
+                        if (tofuApplySuccess) {
+                            downstreamClusterName = sh(
+                                script: """
+                                    docker run --rm --platform linux/amd64 \
+                                        -v ${workspace}:/workspace \
+                                        -w /workspace/${downstreamModulePath} \
+                                        rancher-go-test:latest \
+                                        sh -c 'tofu output -raw name'
+                                """,
+                                returnStdout: true
+                            ).trim()
+                        } else {
+                            // Try to extract cluster name from tofu state even on failure
+                            downstreamClusterName = sh(
+                                script: """
+                                    docker run --rm --platform linux/amd64 \
+                                        -v ${workspace}:/workspace \
+                                        -w /workspace/${downstreamModulePath} \
+                                        rancher-go-test:latest \
+                                        sh -c 'tofu output -raw name 2>/dev/null || true'
+                                """,
+                                returnStdout: true
+                            ).trim()
+                        }
 
-                    if (!tofuApplySuccess) {
-                        error "Downstream cluster provisioning failed. See diagnostics above for details."
-                    }
+                        echo "Downstream cluster name: ${downstreamClusterName}"
 
-                    // Update cattle-config with downstream cluster name so tests run against it
-                    if (downstreamClusterName && fileExists(cattleConfigPath)) {
-                        sh "./yq e '.rancher.clusterName = \"${downstreamClusterName}\"' -i ${cattleConfigPath}"
-                        echo "Updated cattle-config with clusterName: ${downstreamClusterName}"
-                    }
+                        if (!tofuApplySuccess) {
+                            error "Downstream cluster provisioning failed. See diagnostics above for details."
+                        }
+
+                        // Update cattle-config with downstream cluster name so tests run against it
+                        if (downstreamClusterName && fileExists(cattleConfigPath)) {
+                            sh "./yq e '.rancher.clusterName = \"${downstreamClusterName}\"' -i ${cattleConfigPath}"
+                            echo "Updated cattle-config with clusterName: ${downstreamClusterName}"
+                        }
+                    } // property.useWithProperties
                 }
             }
         }
