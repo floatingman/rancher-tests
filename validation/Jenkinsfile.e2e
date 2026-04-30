@@ -712,9 +712,28 @@ rancher_use_bundled_system_charts: true
             }
             steps {
                 script {
-                    // Create cattle-config if provided
+                    // Create cattle-config with variable substitution
                     if (params.CATTLE_TEST_CONFIG?.trim()) {
-                        writeFile file: "${env.TESTS_DIR}/cattle-config.yaml", text: params.CATTLE_TEST_CONFIG.trim() + '\n'
+                        // Resolve credential and config placeholders so that
+                        // awsCredentials.accessKey / secretKey, awsNodeTemplate,
+                        // awsEC2Configs, qaInfraAutomation, etc. get real values.
+                        // Without this the cloud credential has literal
+                        // ${AWS_ACCESS_KEY_ID} / ${AWS_SECRET_ACCESS_KEY} strings.
+                        property.useWithProperties([
+                            'AWS_ACCESS_KEY_ID',
+                            'AWS_SECRET_ACCESS_KEY'
+                        ]) {
+                            def resolvedConfig = infrastructure.parseAndSubstituteVars(
+                                content: params.CATTLE_TEST_CONFIG,
+                                envVars: [
+                                    'AWS_ACCESS_KEY_ID':     env.AWS_ACCESS_KEY_ID,
+                                    'AWS_SECRET_ACCESS_KEY': env.AWS_SECRET_ACCESS_KEY,
+                                    'HOSTNAME_PREFIX':       params.HOSTNAME_PREFIX,
+                                    'ADMIN_PASSWORD':        params.RANCHER_ADMIN_PASSWORD ?: 'rancherrocks'
+                                ]
+                            )
+                            writeFile file: "${env.TESTS_DIR}/cattle-config.yaml", text: resolvedConfig.trim() + '\n'
+                        }
                     }
 
                     // Generate admin token via Ansible playbook
