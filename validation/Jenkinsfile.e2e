@@ -817,7 +817,7 @@ rancher_use_bundled_system_charts: true
                     }
 
                     def rancherUrl = "https://${params.HOSTNAME_PREFIX}.qa.rancher.space"
-                    def generatedTfvars = "api_key = \"${adminToken}\"\nrancher_url = \"${rancherUrl}\""
+                    def generatedTfvars = "api_key = \"${adminToken}\"\nfqdn = \"${rancherUrl}\""
                     infrastructure.writeConfig(
                         path:    generatedTfvarsPath,
                         content: generatedTfvars
