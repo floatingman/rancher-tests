@@ -824,31 +824,104 @@ rancher_use_bundled_system_charts: true
                     )
 
                     // Provision downstream cluster through Rancher
-                    sh """
-                        docker run --rm --platform linux/amd64 \
-                            -v ${workspace}:/workspace \
-                            -w /workspace/${downstreamModulePath} \
-                            rancher-go-test:latest \
-                            sh -c '
-                                set -e
-                                tofu init -input=false
-                                tofu apply -auto-approve -var-file=downstream-cluster.tfvars -var-file=generated.tfvars
-                            '
-                    """
-
-                    // Get downstream cluster name from tofu output
-                    def downstreamClusterName = sh(
-                        script: """
+                    def tofuApplySuccess = true
+                    try {
+                        sh """
                             docker run --rm --platform linux/amd64 \
                                 -v ${workspace}:/workspace \
                                 -w /workspace/${downstreamModulePath} \
                                 rancher-go-test:latest \
-                                sh -c 'tofu output -raw name'
-                        """,
-                        returnStdout: true
-                    ).trim()
+                                sh -c '
+                                    set -e
+                                    tofu init -input=false
+                                    tofu apply -auto-approve -var-file=downstream-cluster.tfvars -var-file=generated.tfvars
+                                '
+                        """
+                    } catch (tofuErr) {
+                        tofuApplySuccess = false
+                        echo "WARNING: tofu apply failed: ${tofuErr.message}"
+
+                        // ── Diagnostics: query Rancher API for cluster status ──
+                        echo '--- Downstream cluster diagnostics ---'
+                        sh """
+                            docker run --rm --platform linux/amd64 \
+                                -v ${workspace}:/workspace \
+                                -w /workspace/${downstreamModulePath} \
+                                rancher-go-test:latest \
+                                sh -c 'tofu state list 2>/dev/null || true'
+                        """
+
+                        // Query Rancher API for cluster conditions
+                        writeFile file: 'diag-cluster-status.py', text: """#!/usr/bin/env python3
+import urllib.request, json, ssl, sys, os
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+try:
+    with open("rancher-token.json") as f:
+        token_data = json.load(f)
+    token = token_data.get("token", token_data.get("bearerToken", ""))
+    url = "${rancherUrl}/v3/clusters"
+    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + token})
+    resp = urllib.request.urlopen(req, context=ctx, timeout=30)
+    clusters = json.loads(resp.read()).get("data", [])
+    for c in clusters:
+        name = c.get("name", "?")
+        state = c.get("state", "?")
+        print(f"  Cluster: {name}  state: {state}")
+        for cond in c.get("conditions", []):
+            ctype = cond.get("type", "")
+            cstatus = cond.get("status", "")
+            cmsg = cond.get("message", cond.get("reason", ""))
+            if cstatus == "False" or ctype in ("Provisioned", "Waiting", "Reconciling", "Updated", "Ready"):
+                print(f"    {ctype}: {cstatus} - {cmsg}")
+    if not clusters:
+        print("  No clusters found")
+except Exception as e:
+    print(f"  Error querying Rancher API: {e}")
+"""
+                        sh """
+                            docker run --rm --platform linux/amd64 \
+                                -v ${workspace}:/workspace \
+                                -w /workspace \
+                                rancher-go-test:latest \
+                                python3 /workspace/diag-cluster-status.py || true
+                        """
+                        echo '--- End diagnostics ---'
+                    }
+
+                    // Get downstream cluster name from tofu output
+                    def downstreamClusterName = ''
+                    if (tofuApplySuccess) {
+                        downstreamClusterName = sh(
+                            script: """
+                                docker run --rm --platform linux/amd64 \
+                                    -v ${workspace}:/workspace \
+                                    -w /workspace/${downstreamModulePath} \
+                                    rancher-go-test:latest \
+                                    sh -c 'tofu output -raw name'
+                            """,
+                            returnStdout: true
+                        ).trim()
+                    } else {
+                        // Try to extract cluster name from tofu state even on failure
+                        downstreamClusterName = sh(
+                            script: """
+                                docker run --rm --platform linux/amd64 \
+                                    -v ${workspace}:/workspace \
+                                    -w /workspace/${downstreamModulePath} \
+                                    rancher-go-test:latest \
+                                    sh -c 'tofu output -raw name 2>/dev/null || true'
+                            """,
+                            returnStdout: true
+                        ).trim()
+                    }
 
                     echo "Downstream cluster name: ${downstreamClusterName}"
+
+                    if (!tofuApplySuccess) {
+                        error "Downstream cluster provisioning failed. See diagnostics above for details."
+                    }
 
                     // Update cattle-config with downstream cluster name so tests run against it
                     if (downstreamClusterName && fileExists(cattleConfigPath)) {
