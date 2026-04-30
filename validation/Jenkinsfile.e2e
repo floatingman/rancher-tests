@@ -446,10 +446,10 @@ node_config = {
 aws_access_key = "\${AWS_ACCESS_KEY_ID}"
 aws_secret_key = "\${AWS_SECRET_ACCESS_KEY}"
 
-aws_ami = "ami-0290e60ec230db1e4"
-aws_ssh_user = "ubuntu"
+aws_ami = "ami-01b0ef1ab7898646f"
+aws_ssh_user = "ec2-user"
 aws_instance_type = "t3a.2xlarge"
-aws_security_group = ["rancher-nodes"]
+aws_security_group = ["sg-07a98dc3474d4eb9f"]
 
 aws_subnet = "subnet-0377a1ca391d51cae"
 aws_availability_zone = "b"
