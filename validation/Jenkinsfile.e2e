@@ -455,7 +455,7 @@ secret_key     = "\${AWS_SECRET_ACCESS_KEY}"
 aws_ami = "ami-01b0ef1ab7898646f"
 aws_ssh_user = "ec2-user"
 aws_instance_type = "t3a.2xlarge"
-aws_security_group = ["qa_default_ipv4"]
+aws_security_group = ["allopen-dualstack"]
 
 aws_subnet = "subnet-0377a1ca391d51cae"
 aws_availability_zone = "b"
