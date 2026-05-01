@@ -1056,7 +1056,6 @@ except Exception as e:
                 }
             }
         }
-    }
 
         stage('Destroy Downstream Cluster') {
             when {
@@ -1100,6 +1099,7 @@ except Exception as e:
                 }
             }
         }
+    }
 
     post {
         failure {
