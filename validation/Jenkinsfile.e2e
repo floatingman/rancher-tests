@@ -444,6 +444,7 @@ create_new = true
 generate_name = "pitdaily-tf"
 machine_global_config = {
 cni = "calico"
+ingress-controller = "traefik"
 }
 node_config = {
 aws_access_key = "\${AWS_ACCESS_KEY_ID}"
