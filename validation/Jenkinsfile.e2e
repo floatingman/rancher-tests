@@ -1058,6 +1058,49 @@ except Exception as e:
         }
     }
 
+        stage('Destroy Downstream Cluster') {
+            when {
+                allOf {
+                    expression { params.BUILD_DOWNSTREAM_CLUSTER }
+                    expression { params.CATTLE_TEST_CONFIG?.trim() }
+                }
+            }
+            steps {
+                script {
+                    property.useWithProperties([
+                        'AWS_ACCESS_KEY_ID',
+                        'AWS_SECRET_ACCESS_KEY'
+                    ]) {
+                        def workspace = pwd()
+                        def downstreamModulePath = "${env.INFRA_DIR}/tofu/rancher/cluster"
+                        def downstreamTfvarsPath = "${downstreamModulePath}/downstream-cluster.tfvars"
+                        def generatedTfvarsPath = "${downstreamModulePath}/generated.tfvars"
+
+                        // Check if tofu state exists (cluster was provisioned)
+                        def stateExists = fileExists("${downstreamModulePath}/terraform.tfstate") ||
+                                          fileExists("${downstreamModulePath}/.terraform.lock.hcl")
+                        if (stateExists) {
+                            echo 'Destroying downstream cluster...'
+                            sh """
+                                docker run --rm --platform linux/amd64 \
+                                    -v ${workspace}:/workspace \
+                                    -w /workspace/${downstreamModulePath} \
+                                    rancher-go-test:latest \
+                                    sh -c '
+                                        set -e
+                                        tofu init -input=false
+                                        tofu destroy -auto-approve -var-file=downstream-cluster.tfvars -var-file=generated.tfvars
+                                    '
+                            """
+                            echo 'Downstream cluster destroyed successfully'
+                        } else {
+                            echo 'No downstream cluster state found — skipping destroy'
+                        }
+                    } // property.useWithProperties
+                }
+            }
+        }
+
     post {
         failure {
             script {
