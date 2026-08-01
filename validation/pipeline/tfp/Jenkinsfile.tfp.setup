@@ -1,4 +1,10 @@
 #!groovy
+// Unified tfp proxy setup / cleanup pipeline (RFC #586, Phase 6 / #793).
+//
+// ACTION=setup  -> run the terraform setup test (gotestsum) and upload .tf files to S3.
+//                  (formerly validation/pipeline/tfp/Jenkinsfile.tfp.setup)
+// ACTION=delete -> download .tf files from S3 and run `terraform destroy`.
+//                  (formerly validation/pipeline/tfp/Jenkinsfile.tfp.setup.delete)
 node {
   def homePath = pwd() + "/"
   def rootPath = "/root/go/src/github.com/rancher/tfp-automation/"
@@ -10,7 +16,8 @@ node {
     job_name = job_names[job_names.size() - 1]
   }
   def testContainer = "${job_name}${env.BUILD_NUMBER}_test"
-  def imageName = "tfp-automation-validation-${job_name}${env.BUILD_NUMBER}"
+  def imagePrefix = (env.ACTION == 'delete') ? 'tfp-automation-cleanup-' : 'tfp-automation-validation-'
+  def imageName = "${imagePrefix}${job_name}${env.BUILD_NUMBER}"
   def testResultsOut = "results.xml"
   def testResultsJSON = "results.json"
   def envFile = ".env"
@@ -50,25 +57,31 @@ node {
                         extensions: scm.extensions + [[$class: 'CleanCheckout']],
                         userRemoteConfigs: repo
                       ])
-            }
-        stage('Configure and Build') {
-          config = config.replace('${AWS_SECRET_ACCESS_KEY}', env.AWS_SECRET_ACCESS_KEY)
-          config = config.replace('${AWS_ACCESS_KEY_ID}', env.AWS_ACCESS_KEY_ID)
-          config = config.replace('${ADMIN_PASSWORD}', env.ADMIN_PASSWORD)
+      }
 
-          writeFile file: 'config.yml', text: config
-
+      stage('Configure and Build') {
           dir(".ssh") {
               def decoded = new String(env.AWS_SSH_PEM_KEY.decodeBase64())
               writeFile file: AWS_SSH_KEY_NAME, text: decoded
           }
 
-          env.CATTLE_TEST_CONFIG=rootPath+'config.yml'
+          if (env.ACTION == 'delete') {
+              sh "docker build . -f Dockerfile --build-arg PEM_FILE=key.pem  --build-arg TERRAFORM_VERSION=${env.TERRAFORM_VERSION} -t ${imageName}"
+          } else {
+              config = config.replace('${AWS_SECRET_ACCESS_KEY}', env.AWS_SECRET_ACCESS_KEY)
+              config = config.replace('${AWS_ACCESS_KEY_ID}', env.AWS_ACCESS_KEY_ID)
+              config = config.replace('${ADMIN_PASSWORD}', env.ADMIN_PASSWORD)
 
-          sh "./configure.sh"
-          sh "./build.sh"
-        }
-        stage('Setup'){
+              writeFile file: 'config.yml', text: config
+
+              env.CATTLE_TEST_CONFIG=rootPath+'config.yml'
+
+              sh "./configure.sh"
+              sh "./build.sh"
+          }
+      }
+
+      stage('Setup'){
             sh returnStdout: true, script: "wget -qO ./yq https://github.com/mikefarah/yq/releases/download/${yqVersion}/yq_linux_amd64 && wget -qO ./yq_checksums https://github.com/mikefarah/yq/releases/download/${yqVersion}/checksums && grep -q '^yq_linux_amd64 ' ./yq_checksums && awk '/^yq_linux_amd64 / {print \$19 \"  ./yq\"}' ./yq_checksums | sha256sum -c - && rm -f ./yq_checksums"
             sh returnStdout:true, script: 'chmod a+x ./yq'
 
@@ -80,44 +93,91 @@ node {
                   script: "echo '${s3Config}' | ./yq '.s3BucketRegion'",
                   returnStdout: true
                 ).trim()
-        }
-        stage('Run Terraform Setup Test') {
-          try {
-            sh """
-              docker run --name ${testContainer} -t -v ${homePath}key.pem:${rootPath}key.pem --env-file ${envFile} ${imageName} sh -c "
-              /root/go/bin/gotestsum --format standard-verbose --packages=${testsDir} --junitfile ${testResultsOut} --jsonfile ${testResultsJSON} -- -timeout=${timeout} -v ${params.TEST_CASE};
-              if [ -f ${rootPath}reporter ]; then ${rootPath}reporter; fi"
-            """
-          } catch(err) {
-              echo 'Test run had failures. Collecting results...'
-              sh "docker rm ${testContainer}"
-          }
-        }
-        stage('Upload tf files to S3 bucket'){
-          try{
-              sh "docker cp ${testContainer}:/root/ ./"
+
+            if (env.ACTION == 'delete') {
+                AWS_ACCESS_KEY_ID = sh (
+                      script: "echo '${s3Config}' | ./yq '.accessKey'",
+                      returnStdout: true
+                    ).trim()
+                AWS_SECRET_ACCESS_KEY = sh (
+                      script: "echo '${s3Config}' | ./yq '.secretKey'",
+                      returnStdout: true
+                    ).trim()
+            }
+      }
+
+      if (env.ACTION == 'delete') {
+          stage('Cleanup setup'){
+            try{
               script {
-                sh """
-                    if ls $TERRAFORM_DIR/. 1> /dev/null 2>&1; then
-                        echo "Terraform files found, starting upload."
-                    else
-                        echo "No Terraform files found!"
-                        exit 1
-                    fi
-                      docker run --rm \
-                        -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
-                        -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
-                        -e AWS_DEFAULT_REGION=$AWS_S3_REGION \
-                        -v $TERRAFORM_DIR/:/root/terraform/ \
-                        amazon/aws-cli \
-                        s3 cp /root/terraform/. s3://$AWS_S3_BUCKET/terraform/ --recursive
-                    """
-                }
-            }catch(err){
-                echo "Unable to get the output: ${err}"
-                sh "docker rm ${testContainer}"
+              sh """
+                  docker volume create $terraformVolume
+
+                  docker run --name $s3Container \
+                  -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+                  -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+                  -e AWS_DEFAULT_REGION=$AWS_S3_REGION \
+                  -v $terraformVolume:/terraform-files  \
+                  amazon/aws-cli \
+                  s3 cp s3://$AWS_S3_BUCKET/terraform/aws/ /terraform-files --recursive
+
+                  docker run --rm -t -v $terraformVolume:/terraform-files --name $testContainer ${imageName} \
+                  sh -c "chmod +x -R /terraform-files && terraform -chdir=/terraform-files init && terraform -chdir=/terraform-files destroy -auto-approve"
+
+                  docker run --rm \
+                  -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+                  -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+                  -e AWS_DEFAULT_REGION=$AWS_S3_REGION \
+                  amazon/aws-cli \
+                  s3 rm s3://$AWS_S3_BUCKET/terraform/ --recursive
+                  """
               }
-              sh "docker rm ${testContainer}"
+            }catch(err){
+              sh "docker rm $s3Container"
+              sh  "docker volume rm $terraformVolume"
+            }
+              sh "docker rm $s3Container"
+              sh  "docker volume rm $terraformVolume"
           }
-    }
+      } else {
+          stage('Run Terraform Setup Test') {
+            try {
+              sh """
+                docker run --name ${testContainer} -t -v ${homePath}key.pem:${rootPath}key.pem --env-file ${envFile} ${imageName} sh -c "
+                /root/go/bin/gotestsum --format standard-verbose --packages=${testsDir} --junitfile ${testResultsOut} --jsonfile ${testResultsJSON} -- -timeout=${timeout} -v ${params.TEST_CASE};
+                if [ -f ${rootPath}reporter ]; then ${rootPath}reporter; fi"
+              """
+            } catch(err) {
+                echo 'Test run had failures. Collecting results...'
+                sh "docker rm ${testContainer}"
+            }
+          }
+          stage('Upload tf files to S3 bucket'){
+            try{
+                sh "docker cp ${testContainer}:/root/ ./"
+                script {
+                  sh """
+                      if ls $TERRAFORM_DIR/. 1> /dev/null 2>&1; then
+                          echo "Terraform files found, starting upload."
+                      else
+                          echo "No Terraform files found!"
+                          exit 1
+                      fi
+                        docker run --rm \
+                          -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+                          -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+                          -e AWS_DEFAULT_REGION=$AWS_S3_REGION \
+                          -v $TERRAFORM_DIR/:/root/terraform/ \
+                          amazon/aws-cli \
+                          s3 cp /root/terraform/. s3://$AWS_S3_BUCKET/terraform/ --recursive
+                      """
+                  }
+              }catch(err){
+                  echo "Unable to get the output: ${err}"
+                  sh "docker rm ${testContainer}"
+                }
+                sh "docker rm ${testContainer}"
+          }
+      }
+  }
 }
