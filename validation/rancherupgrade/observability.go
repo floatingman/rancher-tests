@@ -46,11 +46,14 @@ const (
 	// connection settings (url, api key, license, admin password).
 	stackstateConfigFileKey = "stackstateConfigs"
 
-	// haSizingValuesPath points at the observability package's 150-ha sizing
-	// profile. It is read from the sibling package instead of being forked into
-	// this one so both suites stay pinned to a single source of truth for HA
-	// sizing; `go test` always runs with the package directory as CWD.
-	haSizingValuesPath = "../observability/resources/150-ha_sizing_values.yaml"
+	// sizingValuesPath points at the observability package's 10-nonha
+	// sizing profile. It is read from the sibling package instead of being
+	// forked into this one so both suites stay pinned to a single source of
+	// truth for sizing; `go test` always runs with the package directory as
+	// CWD. The HA profile is not an option here: it requests ~27 cores,
+	// which can never schedule on the pipeline's 3-node t3a.2xlarge cluster
+	// (~22 allocatable cores), leaving pods Pending until the helm deadline.
+	sizingValuesPath = "../observability/resources/10-nonha_sizing_values.yaml"
 
 	// primeImageRegistry is the prime registry the suse-observability server
 	// images pull from, matching validation/observability.
@@ -87,16 +90,18 @@ func loadStackStateConfig() *observability.StackStateConfig {
 	return stackstateConfigs
 }
 
-// loadHASizingValues reads the observability package's 150-ha sizing profile and
-// returns it as suse-observability chart values, so this suite installs the same
-// HA sizing profile as validation/observability without forking the values.
-func loadHASizingValues() (map[string]interface{}, error) {
-	sizingData, err := os.ReadFile(haSizingValuesPath)
+// loadSizingValues reads the observability package's 10-nonha sizing profile
+// and returns it as suse-observability chart values. This suite validates
+// continuity across a Rancher upgrade, not fleet-scale throughput, and runs
+// against the pipeline's 3-node cluster, where the nonha profile is the only
+// one whose resource requests fit.
+func loadSizingValues() (map[string]interface{}, error) {
+	sizingData, err := os.ReadFile(sizingValuesPath)
 	if err != nil {
 		return nil, err
 	}
 
-	var sizingConfig observability.SizingConfigHA
+	var sizingConfig observability.SizingConfigNonHA
 	if err = yaml.Unmarshal(sizingData, &sizingConfig); err != nil {
 		return nil, err
 	}
@@ -104,10 +109,9 @@ func loadHASizingValues() (map[string]interface{}, error) {
 	return interoperableCharts.StructToMap(sizingConfig)
 }
 
-// stackstateServerValues builds the suse-observability server chart values,
-// mirroring validation/observability's HA-values installation: base config
-// (prime registry, url, admin password, api key, license) plus ingress config,
-// merged over the HA sizing profile.
+// stackstateServerValues builds the suse-observability server chart values:
+// base config (prime registry, url, admin password, api key, license) plus
+// ingress config, merged over the 10-nonha sizing profile.
 func stackstateServerValues(stackstateConfigs *observability.StackStateConfig, sizingValues map[string]interface{}) (map[string]interface{}, error) {
 	baseConfig := observability.BaseConfig{
 		Global: observability.GlobalConfig{
@@ -291,6 +295,7 @@ func logInstallDiagnostics(client *rancher.Client, catalogClient *catalog.Client
 	} else {
 		log.Infof("diagnostics: namespace %s annotations=%v conditions=%v", namespace, ns.Annotations, ns.Status.Conditions)
 	}
+	logNamespaceWorkloadState(k8s, namespace)
 
 	if ops, err := catalogClient.Operations(namespace).List(context.TODO(), meta.ListOptions{}); err != nil {
 		log.Warnf("diagnostics: listing catalog operations in %s failed: %v", namespace, err)
@@ -316,4 +321,71 @@ func logInstallDiagnostics(client *rancher.Client, catalogClient *catalog.Client
 	} else {
 		log.Infof("diagnostics: app %s status=%+v", appName, app.Status)
 	}
+}
+
+// logNamespaceWorkloadState dumps the readiness of every workload object in
+// the chart namespace: pods with their container waiting reasons and restart
+// counts, jobs, PVCs, deployments and statefulsets. helm --wait failing with
+// "context deadline exceeded" names no culprit; this does. Best-effort like
+// logInstallDiagnostics: capture failures are logged and swallowed.
+func logNamespaceWorkloadState(k8s *kubernetes.Clientset, namespace string) {
+	if pods, err := k8s.CoreV1().Pods(namespace).List(context.TODO(), meta.ListOptions{}); err != nil {
+		log.Warnf("diagnostics: listing pods in %s failed: %v", namespace, err)
+	} else {
+		for i := range pods.Items {
+			pod := pods.Items[i]
+			waitStates := make([]string, 0, len(pod.Status.ContainerStatuses))
+			for _, cs := range pod.Status.ContainerStatuses {
+				if cs.State.Waiting != nil {
+					waitStates = append(waitStates, fmt.Sprintf("%s:%s(%s)", cs.Name, cs.State.Waiting.Reason, cs.State.Waiting.Message))
+				}
+			}
+			log.Infof("diagnostics: pod %s phase=%s restarts=%v waiting=%v", pod.Name, pod.Status.Phase, containerRestarts(pod.Status.ContainerStatuses), waitStates)
+		}
+	}
+
+	if jobs, err := k8s.BatchV1().Jobs(namespace).List(context.TODO(), meta.ListOptions{}); err != nil {
+		log.Warnf("diagnostics: listing jobs in %s failed: %v", namespace, err)
+	} else {
+		for i := range jobs.Items {
+			job := jobs.Items[i]
+			log.Infof("diagnostics: job %s succeeded=%d failed=%d parallelism=%v conditions=%v", job.Name, job.Status.Succeeded, job.Status.Failed, job.Spec.Parallelism, job.Status.Conditions)
+		}
+	}
+
+	if pvcs, err := k8s.CoreV1().PersistentVolumeClaims(namespace).List(context.TODO(), meta.ListOptions{}); err != nil {
+		log.Warnf("diagnostics: listing PVCs in %s failed: %v", namespace, err)
+	} else {
+		for i := range pvcs.Items {
+			pvc := pvcs.Items[i]
+			log.Infof("diagnostics: pvc %s phase=%s", pvc.Name, pvc.Status.Phase)
+		}
+	}
+
+	if deps, err := k8s.AppsV1().Deployments(namespace).List(context.TODO(), meta.ListOptions{}); err != nil {
+		log.Warnf("diagnostics: listing deployments in %s failed: %v", namespace, err)
+	} else {
+		for i := range deps.Items {
+			dep := deps.Items[i]
+			log.Infof("diagnostics: deployment %s desired=%d ready=%d available=%d", dep.Name, *dep.Spec.Replicas, dep.Status.ReadyReplicas, dep.Status.AvailableReplicas)
+		}
+	}
+
+	if sts, err := k8s.AppsV1().StatefulSets(namespace).List(context.TODO(), meta.ListOptions{}); err != nil {
+		log.Warnf("diagnostics: listing statefulsets in %s failed: %v", namespace, err)
+	} else {
+		for i := range sts.Items {
+			st := sts.Items[i]
+			log.Infof("diagnostics: statefulset %s desired=%d ready=%d current=%d", st.Name, *st.Spec.Replicas, st.Status.ReadyReplicas, st.Status.CurrentReplicas)
+		}
+	}
+}
+
+// containerRestarts totals the restart counts of a pod's containers.
+func containerRestarts(statuses []corev1.ContainerStatus) int32 {
+	var restarts int32
+	for i := range statuses {
+		restarts += statuses[i].RestartCount
+	}
+	return restarts
 }

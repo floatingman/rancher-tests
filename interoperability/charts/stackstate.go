@@ -9,7 +9,6 @@ import (
 	rv1 "github.com/rancher/rancher/pkg/apis/catalog.cattle.io/v1"
 	"github.com/rancher/shepherd/clients/rancher"
 	"github.com/rancher/shepherd/clients/rancher/catalog"
-	"github.com/rancher/shepherd/extensions/defaults"
 	"github.com/rancher/shepherd/pkg/api/steve/catalog/types"
 	"github.com/rancher/shepherd/pkg/wait"
 	"github.com/rancher/tests/actions/charts"
@@ -41,8 +40,11 @@ const (
 	// stackstateHelmActionTimeout is the helm timeout carried by the chart
 	// actions. The default ten minutes does not cover a cold cluster pulling
 	// the full SUSE Observability image set: build 35's install hit the helm
-	// deadline with workloads still pulling, and the app failed.
-	stackstateHelmActionTimeout = 30 * time.Minute
+	// deadline with workloads still pulling, and the app failed. Forty-five
+	// minutes covers cold pulls with room to spare while keeping a
+	// deadline-exceeded failure, which dumps its diagnostics, inside the
+	// pipeline's per-phase test timeout.
+	stackstateHelmActionTimeout = 45 * time.Minute
 	// chartTemplatePollInterval and chartTemplatePollTimeout bound the wait
 	// for a fresh ClusterRepo's chart template to be fetched and cached
 	// server-side; the template requires downloading the chart tarball, which
@@ -51,7 +53,11 @@ const (
 	chartTemplatePollTimeout  = 10 * time.Minute
 )
 
-var timeoutSeconds = int64(defaults.TwoMinuteTimeout)
+// appWatchSeconds bounds the app watches: it must exceed the helm action
+// timeout comfortably, or the watch gives up on an install that is still
+// running healthily (build 36's watch tied with the thirty-minute helm
+// deadline and lost by seconds).
+var appWatchSeconds = int64((stackstateHelmActionTimeout + 10*time.Minute).Seconds())
 
 // WaitForChartTemplate polls the chart template info link until the catalog
 // has fetched and cached the chart version template server-side. Fresh
@@ -143,7 +149,7 @@ func InstallStackStateServerChart(client *rancher.Client, installOptions *charts
 
 	watchAppInterface, err := catalogClient.Apps(StackStateServerNamespace).Watch(context.TODO(), metav1.ListOptions{
 		FieldSelector:  "metadata.name=" + StackStateServerChartRepo,
-		TimeoutSeconds: &defaults.WatchTimeoutSeconds,
+		TimeoutSeconds: &appWatchSeconds,
 	})
 	if err != nil {
 		log.Info("StackState App failed to install")
@@ -154,6 +160,9 @@ func InstallStackStateServerChart(client *rancher.Client, installOptions *charts
 		app := event.Object.(*catalogv1.App)
 
 		state := app.Status.Summary.State
+		if state == string(catalogv1.StatusFailed) {
+			return false, fmt.Errorf("app %s entered failed state", app.Name)
+		}
 		if state == string(catalogv1.StatusDeployed) {
 			return true, nil
 		}
@@ -200,7 +209,7 @@ func InstallStackstateAgentChart(client *rancher.Client, installOptions *charts.
 
 		watchAppInterface, err := catalogClient.Apps(StackstateNamespace).Watch(context.TODO(), metav1.ListOptions{
 			FieldSelector:  "metadata.name=" + StackstateK8sAgent,
-			TimeoutSeconds: &timeoutSeconds,
+			TimeoutSeconds: &appWatchSeconds,
 		})
 		if err != nil {
 			return err
@@ -251,7 +260,7 @@ func InstallStackstateAgentChart(client *rancher.Client, installOptions *charts.
 
 		watchNamespaceInterface, err := adminNamespaceResource.Watch(context.TODO(), metav1.ListOptions{
 			FieldSelector:  "metadata.name=" + StackstateNamespace,
-			TimeoutSeconds: &timeoutSeconds,
+			TimeoutSeconds: &appWatchSeconds,
 		})
 		if err != nil {
 			return err
@@ -275,7 +284,7 @@ func InstallStackstateAgentChart(client *rancher.Client, installOptions *charts.
 	// wait for chart to be fully deployed
 	watchAppInterface, err := catalogClient.Apps(StackstateNamespace).Watch(context.TODO(), metav1.ListOptions{
 		FieldSelector:  "metadata.name=" + StackstateK8sAgent,
-		TimeoutSeconds: &defaults.WatchTimeoutSeconds,
+		TimeoutSeconds: &appWatchSeconds,
 	})
 	if err != nil {
 		log.Info("Unable to obtain the installed app ")
@@ -286,6 +295,9 @@ func InstallStackstateAgentChart(client *rancher.Client, installOptions *charts.
 		app := event.Object.(*catalogv1.App)
 
 		state := app.Status.Summary.State
+		if state == string(catalogv1.StatusFailed) {
+			return false, fmt.Errorf("app %s entered failed state", app.Name)
+		}
 		if state == string(catalogv1.StatusDeployed) {
 			return true, nil
 		}
@@ -370,7 +382,7 @@ func UpgradeStackstateAgentChart(client *rancher.Client, installOptions *charts.
 	// wait for chart to be in status pending upgrade
 	watchAppInterface, err := adminCatalogClient.Apps(StackstateNamespace).Watch(context.TODO(), metav1.ListOptions{
 		FieldSelector:  "metadata.name=" + StackstateK8sAgent,
-		TimeoutSeconds: &defaults.WatchTimeoutSeconds,
+		TimeoutSeconds: &appWatchSeconds,
 	})
 	if err != nil {
 		return err
@@ -380,6 +392,9 @@ func UpgradeStackstateAgentChart(client *rancher.Client, installOptions *charts.
 		app := event.Object.(*catalogv1.App)
 
 		state := app.Status.Summary.State
+		if state == string(catalogv1.StatusFailed) {
+			return false, fmt.Errorf("app %s entered failed state", app.Name)
+		}
 		if state == string(catalogv1.StatusPendingUpgrade) {
 			return true, nil
 		}
@@ -391,7 +406,7 @@ func UpgradeStackstateAgentChart(client *rancher.Client, installOptions *charts.
 
 	watchAppInterface, err = adminCatalogClient.Apps(StackstateNamespace).Watch(context.TODO(), metav1.ListOptions{
 		FieldSelector:  "metadata.name=" + StackstateK8sAgent,
-		TimeoutSeconds: &defaults.WatchTimeoutSeconds,
+		TimeoutSeconds: &appWatchSeconds,
 	})
 	if err != nil {
 		return err
@@ -401,6 +416,9 @@ func UpgradeStackstateAgentChart(client *rancher.Client, installOptions *charts.
 		app := event.Object.(*catalogv1.App)
 
 		state := app.Status.Summary.State
+		if state == string(catalogv1.StatusFailed) {
+			return false, fmt.Errorf("app %s entered failed state", app.Name)
+		}
 		if state == string(catalogv1.StatusDeployed) {
 			return true, nil
 		}
@@ -431,6 +449,33 @@ func newStackstateAgentChartUpgradeAction(p *charts.PayloadOpts, stackstateConfi
 	chartUpgradeAction.Timeout = &metav1.Duration{Duration: stackstateHelmActionTimeout}
 
 	return chartUpgradeAction
+}
+
+// UninstallStackStateApp removes the app and its helm release from the
+// cluster. A partial install leaves the release name taken and helm refuses
+// every later install with "cannot re-use a name that is still in use", so
+// re-entrant suites uninstall a stale app before installing again. Waits
+// until the app object is gone.
+func UninstallStackStateApp(client *rancher.Client, clusterID, namespace, appName string) error {
+	uninstallAction := &types.ChartUninstallAction{
+		Timeout: &metav1.Duration{Duration: stackstateHelmActionTimeout},
+	}
+
+	catalogClient, err := client.GetClusterCatalogClient(clusterID)
+	if err != nil {
+		return err
+	}
+
+	if err := retryChartAction(fmt.Sprintf("%s chart uninstall", appName), func() error {
+		return catalogClient.UninstallChart(appName, namespace, uninstallAction)
+	}); err != nil {
+		return err
+	}
+
+	return kwait.PollUntilContextTimeout(context.TODO(), chartTemplatePollInterval, chartTemplatePollTimeout, true, func(context.Context) (bool, error) {
+		_, err := catalogClient.Apps(namespace).Get(context.TODO(), appName, metav1.GetOptions{})
+		return k8sErrors.IsNotFound(err), nil
+	})
 }
 
 // UpgradeStackStateServerChart upgrades the suse-observability server chart on the cluster
@@ -482,7 +527,7 @@ func UpgradeStackStateServerChart(client *rancher.Client, installOptions *charts
 	// wait for chart to be in status pending upgrade
 	watchAppInterface, err := adminCatalogClient.Apps(StackStateServerNamespace).Watch(context.TODO(), metav1.ListOptions{
 		FieldSelector:  "metadata.name=" + StackStateServerChartRepo,
-		TimeoutSeconds: &defaults.WatchTimeoutSeconds,
+		TimeoutSeconds: &appWatchSeconds,
 	})
 	if err != nil {
 		return err
@@ -492,6 +537,9 @@ func UpgradeStackStateServerChart(client *rancher.Client, installOptions *charts
 		app := event.Object.(*catalogv1.App)
 
 		state := app.Status.Summary.State
+		if state == string(catalogv1.StatusFailed) {
+			return false, fmt.Errorf("app %s entered failed state", app.Name)
+		}
 		if state == string(catalogv1.StatusPendingUpgrade) {
 			return true, nil
 		}
@@ -503,7 +551,7 @@ func UpgradeStackStateServerChart(client *rancher.Client, installOptions *charts
 
 	watchAppInterface, err = adminCatalogClient.Apps(StackStateServerNamespace).Watch(context.TODO(), metav1.ListOptions{
 		FieldSelector:  "metadata.name=" + StackStateServerChartRepo,
-		TimeoutSeconds: &defaults.WatchTimeoutSeconds,
+		TimeoutSeconds: &appWatchSeconds,
 	})
 	if err != nil {
 		return err
@@ -513,6 +561,9 @@ func UpgradeStackStateServerChart(client *rancher.Client, installOptions *charts
 		app := event.Object.(*catalogv1.App)
 
 		state := app.Status.Summary.State
+		if state == string(catalogv1.StatusFailed) {
+			return false, fmt.Errorf("app %s entered failed state", app.Name)
+		}
 		if state == string(catalogv1.StatusDeployed) {
 			return true, nil
 		}
