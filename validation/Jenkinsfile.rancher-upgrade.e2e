@@ -76,6 +76,15 @@ def UPGRADE_TEST_MODULES = [
         pre:   '-run "TestObservabilityUpgradeTestSuite/TestObservabilityPreUpgrade"',
         post:  '-run "TestObservabilityUpgradeTestSuite/TestObservabilityPostUpgrade"',
         chart: '-run "TestObservabilityUpgradeTestSuite/TestObservabilityChartUpgrade"'
+    ],
+    all: [
+        // Every module's suite in one pipeline run; the broad regex also
+        // picks up modules added to the package later. Fleet has no chart
+        // subtest, so the chart phase runs its Setup/TearDown with zero
+        // matched methods (harmless: its config keys are still threaded).
+        pre:   '-run "Test.*UpgradeTestSuite/Test.*PreUpgrade"',
+        post:  '-run "Test.*UpgradeTestSuite/Test.*PostUpgrade"',
+        chart: '-run "Test.*UpgradeTestSuite/Test.*ChartUpgrade"'
     ]
 ]
 
@@ -337,7 +346,7 @@ server_flags: |
         string(
             name: 'TEST_MODULE',
             defaultValue: params.TEST_MODULE ?: 'longhorn',
-            description: 'rancherupgrade module under test (longhorn | neuvector | fleet | observability). Selects the per-phase -run regexes; fleet has no chart-upgrade phase.'
+            description: 'rancherupgrade module under test (longhorn | neuvector | fleet | observability | all). Selects the per-phase -run regexes; fleet has no chart-upgrade phase; all runs every module suite in one pipeline.'
         )
         string(
             name: 'STACKSTATE_URL',
@@ -549,7 +558,7 @@ rancherUpgradePipeline:
                         """.stripIndent()
                     currentBuild.description = "Upgrade ${env.RANCHER_FROM_VERSION} -> ${env.RANCHER_TO_VERSION} (${params.RANCHER_CHART_REPO_FLAVOR}) | ${params.HOSTNAME_PREFIX} | ${params.TEST_MODULE}"
 
-                    if (params.TEST_MODULE == 'observability') {
+                    if (params.TEST_MODULE in ['observability', 'all']) {
                         // Pre-deploy guard: fail before any infra spend when
                         // the SUSE Observability license credential is absent
                         // or empty; the post-deploy config injection reuses it.
@@ -771,7 +780,7 @@ rancher_use_bundled_system_charts: true
                     // test config for fleet alone; the PEM sits in the
                     // orchestrator workspace where writeSshKey put it for
                     // ansible.
-                    if (params.TEST_MODULE == 'fleet') {
+                    if (params.TEST_MODULE in ['fleet', 'all']) {
                         property.useWithProperties(['AWS_SSH_PEM_KEY_NAME']) {
                             def pemPath = "${workspace}/.ssh/${AWS_SSH_PEM_KEY_NAME}"
                             if (!fileExists(pemPath)) {
@@ -795,7 +804,7 @@ rancher_use_bundled_system_charts: true
                         }
                     }
 
-                    if (params.TEST_MODULE == 'observability') {
+                    if (params.TEST_MODULE in ['observability', 'all']) {
                         // SUSE Observability needs its license plus the
                         // connection settings the server and the agent share.
                         // The license is the STACKSTATE_LICENSE folder
