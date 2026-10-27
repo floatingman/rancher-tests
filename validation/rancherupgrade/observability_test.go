@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	catalogv1 "github.com/rancher/rancher/pkg/apis/catalog.cattle.io/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -90,27 +91,65 @@ func (s *ObservabilityUpgradeTestSuite) TestObservabilityPreUpgrade() {
 	}
 	require.NoError(s.T(), err)
 
-	latestServerVersion, err := serverCatalogClient.GetLatestChartVersion(interoperableCharts.StackStateServerChartRepo, interoperableCharts.StackStateServerChartRepo)
+	// The ClusterRepo above may have been created seconds ago; its chart index
+	// is fetched and indexed asynchronously, so poll for index readiness first.
+	// Then seed the previous stable version, not the latest: the prime repo's
+	// index does not change across the Rancher server upgrade, so a
+	// latest-seeded install leaves the chart-upgrade phase without a delta.
+	_, err = latestChartVersionAfterRepoCreate(serverCatalogClient, interoperableCharts.StackStateServerChartRepo, interoperableCharts.StackStateServerChartRepo)
+	require.NoError(s.T(), err)
+	seedServerVersion, err := previousStableChartVersion(serverCatalogClient, interoperableCharts.StackStateServerChartRepo, interoperableCharts.StackStateServerChartRepo)
 	require.NoError(s.T(), err)
 
-	err = ensureNamespace(s.client, s.serverCluster.ID, systemProjectName, interoperableCharts.StackStateServerNamespace)
-	require.NoError(s.T(), err)
+	// Pre-warm the version's chart template: its first fetch downloads the
+	// chart tarball server-side, and an install action issued before the
+	// template is cached can outlive the request deadline.
+	require.NoError(s.T(), interoperableCharts.WaitForChartTemplate(serverCatalogClient, interoperableCharts.StackStateServerChartRepo, interoperableCharts.StackStateServerChartRepo, seedServerVersion))
+
+	// The install action creates and project-annotates the namespace itself;
+	// pre-creating it poisons the action's thirty-second watch for the
+	// InitialRolesPopulated event on an already-quiet namespace.
 
 	serverSystemProjectID, err := systemProjectID(s.client, s.serverCluster.ID)
 	require.NoError(s.T(), err)
 
-	sizingValues, err := loadHASizingValues()
-	require.NoError(s.T(), err)
-	serverValues, err := stackstateServerValues(stackstateConfigs, sizingValues)
+	serverValues, err := stackstateServerValues(stackstateConfigs)
 	require.NoError(s.T(), err)
 
-	logrus.Infof("pre-upgrade phase: installing suse-observability server %s in the System project on the local cluster", latestServerVersion)
-	err = interoperableCharts.InstallStackStateServerChart(s.client, &charts.InstallOptions{
-		Cluster:   s.serverCluster,
-		Version:   latestServerVersion,
-		ProjectID: serverSystemProjectID,
-	}, serverSystemProjectID, serverValues)
-	require.NoError(s.T(), err)
+	// The chart's PVCs request the cluster default storage class; the
+	// pipeline's RKE2 clusters ship none, which leaves every PVC Pending and
+	// helm --wait burning its full deadline.
+	require.NoError(s.T(), ensureDefaultStorageClass(s.client, s.serverCluster.ID))
+
+	// Re-entrant install: a partial install from an earlier attempt leaves the
+	// helm release name taken ("cannot re-use a name that is still in use").
+	// A deployed app already satisfies the phase; a stale partial one is
+	// uninstalled first.
+	serverInstalled := false
+	if existing, statusErr := extencharts.GetChartStatus(s.client, s.serverCluster.ID, interoperableCharts.StackStateServerNamespace, interoperableCharts.StackStateServerChartRepo); statusErr == nil && existing != nil && existing.ChartDetails != nil {
+		if existing.ChartDetails.Status.Summary.State == string(catalogv1.StatusDeployed) {
+			logrus.Infof("pre-upgrade phase: suse-observability server already deployed at %s; skipping install", existing.ChartDetails.Spec.Chart.Metadata.Version)
+			serverInstalled = true
+		} else {
+			logrus.Infof("pre-upgrade phase: stale suse-observability app in state %s; uninstalling before install", existing.ChartDetails.Status.Summary.State)
+			require.NoError(s.T(), interoperableCharts.UninstallStackStateApp(s.client, s.serverCluster.ID, interoperableCharts.StackStateServerNamespace, interoperableCharts.StackStateServerChartRepo))
+		}
+	}
+	if !serverInstalled {
+		logrus.Infof("pre-upgrade phase: installing suse-observability server %s in the System project on the local cluster", seedServerVersion)
+		err = interoperableCharts.InstallStackStateServerChart(s.client, &charts.InstallOptions{
+			Cluster:   s.serverCluster,
+			Version:   seedServerVersion,
+			ProjectID: serverSystemProjectID,
+		}, serverSystemProjectID, serverValues)
+		if err != nil {
+			// The install action answers bare internal errors whose cause only
+			// the Rancher server knows; capture its logs, the namespace state and
+			// the helm operation's status before failing.
+			logInstallDiagnostics(s.client, serverCatalogClient, s.serverCluster.ID, interoperableCharts.StackStateServerNamespace, interoperableCharts.StackStateServerChartRepo)
+		}
+		require.NoError(s.T(), err)
+	}
 
 	err = waitForChartWorkloads(s.client, s.serverCluster.ID, interoperableCharts.StackStateServerNamespace)
 	require.NoError(s.T(), err)
@@ -118,27 +157,32 @@ func (s *ObservabilityUpgradeTestSuite) TestObservabilityPreUpgrade() {
 	serverPodClusterName, err := podStatusClusterName(s.client, localClusterName)
 	require.NoError(s.T(), err)
 	require.Empty(s.T(), pods.StatusPods(s.client, serverPodClusterName), "suse-observability server pods must be healthy after install")
-	logrus.Infof("pre-upgrade phase: suse-observability server %s healthy; installing the agent", latestServerVersion)
+	logrus.Infof("pre-upgrade phase: suse-observability server %s healthy; installing the agent", seedServerVersion)
 
 	// Agent side, on the shared downstream cluster selected by rancher.clusterName.
 	agentCatalogClient, err := s.client.GetClusterCatalogClient(s.agentCluster.ID)
 	require.NoError(s.T(), err)
 
-	latestAgentVersion, err := agentCatalogClient.GetLatestChartVersion(interoperableCharts.StackstateK8sAgent, interoperableCharts.RancherPartnerChartRepo)
+	seedAgentVersion, err := previousStableChartVersion(agentCatalogClient, interoperableCharts.StackstateK8sAgent, interoperableCharts.StackStateServerChartRepo)
 	require.NoError(s.T(), err)
 
-	err = ensureNamespace(s.client, s.agentCluster.ID, systemProjectName, interoperableCharts.StackstateNamespace)
-	require.NoError(s.T(), err)
+	// As above on the agent side: the install action owns namespace creation.
 
 	agentSystemProjectID, err := systemProjectID(s.client, s.agentCluster.ID)
 	require.NoError(s.T(), err)
 
-	logrus.Infof("pre-upgrade phase: installing stackstate agent %s on cluster %s", latestAgentVersion, s.agentCluster.ID)
+	logrus.Infof("pre-upgrade phase: installing stackstate agent %s on cluster %s", seedAgentVersion, s.agentCluster.ID)
 	err = interoperableCharts.InstallStackstateAgentChart(s.client, &charts.InstallOptions{
 		Cluster:   s.agentCluster,
-		Version:   latestAgentVersion,
+		Version:   seedAgentVersion,
 		ProjectID: agentSystemProjectID,
 	}, stackstateConfigs, agentSystemProjectID)
+	if err != nil {
+		// The install action answers bare internal errors whose cause only
+		// the Rancher server knows; capture the same evidence the server
+		// install path collects.
+		logInstallDiagnostics(s.client, agentCatalogClient, s.agentCluster.ID, interoperableCharts.StackstateNamespace, interoperableCharts.StackstateK8sAgent)
+	}
 	require.NoError(s.T(), err)
 
 	// Agent reporting is verified the way validation/observability does it: the
@@ -150,7 +194,7 @@ func (s *ObservabilityUpgradeTestSuite) TestObservabilityPreUpgrade() {
 	agentPodClusterName, err := podStatusClusterName(s.client, s.client.RancherConfig.ClusterName)
 	require.NoError(s.T(), err)
 	require.Empty(s.T(), pods.StatusPods(s.client, agentPodClusterName), "stackstate agent pods must be healthy and reporting after install")
-	logrus.Infof("pre-upgrade phase: stackstate agent %s reporting to %s; pre-upgrade state seeded", latestAgentVersion, stackstateConfigs.Url)
+	logrus.Infof("pre-upgrade phase: stackstate agent %s reporting to %s; pre-upgrade state seeded", seedAgentVersion, stackstateConfigs.Url)
 }
 
 func (s *ObservabilityUpgradeTestSuite) TestObservabilityPostUpgrade() {
@@ -209,8 +253,15 @@ func (s *ObservabilityUpgradeTestSuite) TestObservabilityChartUpgrade() {
 
 	agentCatalogClient, err := s.client.GetClusterCatalogClient(s.agentCluster.ID)
 	require.NoError(s.T(), err)
-	latestAgentVersion, err := agentCatalogClient.GetLatestChartVersion(interoperableCharts.StackstateK8sAgent, interoperableCharts.RancherPartnerChartRepo)
+	latestAgentVersion, err := agentCatalogClient.GetLatestChartVersion(interoperableCharts.StackstateK8sAgent, interoperableCharts.StackStateServerChartRepo)
 	require.NoError(s.T(), err)
+
+	// Pre-warm the newly offered versions' templates: a version's first
+	// template fetch downloads the chart tarball server-side, and an upgrade
+	// action issued before the template is cached can outlive the request
+	// deadline.
+	require.NoError(s.T(), interoperableCharts.WaitForChartTemplate(serverCatalogClient, interoperableCharts.StackStateServerChartRepo, interoperableCharts.StackStateServerChartRepo, latestServerVersion))
+	require.NoError(s.T(), interoperableCharts.WaitForChartTemplate(agentCatalogClient, interoperableCharts.StackStateServerChartRepo, interoperableCharts.StackstateK8sAgent, latestAgentVersion))
 
 	installedServer, err := extencharts.GetChartStatus(s.client, s.serverCluster.ID, interoperableCharts.StackStateServerNamespace, interoperableCharts.StackStateServerChartRepo)
 	require.NoError(s.T(), err)
@@ -233,12 +284,10 @@ func (s *ObservabilityUpgradeTestSuite) TestObservabilityChartUpgrade() {
 		installedAgent.ChartDetails.Spec.Chart.Metadata.Version, latestAgentVersion)
 
 	// Re-apply the install-time server values rather than a blind version bump:
-	// upgrading on chart defaults would drop the HA sizing profile and the
+	// upgrading on chart defaults would drop the sizing profile and the
 	// stackstate service credentials (rancher/tests#946 Further Notes on
 	// per-product values migration).
-	sizingValues, err := loadHASizingValues()
-	require.NoError(s.T(), err)
-	serverValues, err := stackstateServerValues(stackstateConfigs, sizingValues)
+	serverValues, err := stackstateServerValues(stackstateConfigs)
 	require.NoError(s.T(), err)
 
 	serverSystemProjectID, err := systemProjectID(s.client, s.serverCluster.ID)
