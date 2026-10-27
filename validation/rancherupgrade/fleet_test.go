@@ -13,7 +13,6 @@ import (
 	"github.com/rancher/shepherd/pkg/session"
 	actionsClusters "github.com/rancher/tests/actions/clusters"
 	actionsFleet "github.com/rancher/tests/actions/fleet"
-	"github.com/rancher/tests/actions/ssh"
 	"github.com/rancher/tests/interoperability/fleet"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -26,10 +25,11 @@ import (
 // lockstep with the server.
 type FleetUpgradeTestSuite struct {
 	suite.Suite
-	session     *session.Session
-	client      *rancher.Client
-	cluster     *clusters.ClusterMeta
-	fleetTarget string
+	session          *session.Session
+	client           *rancher.Client
+	cluster          *clusters.ClusterMeta
+	fleetTarget      string
+	gitRepoNamespace string
 }
 
 func (s *FleetUpgradeTestSuite) SetupSuite() {
@@ -59,6 +59,7 @@ func (s *FleetUpgradeTestSuite) SetupSuite() {
 	fleetTarget, err := fleetTargetClusterName(client, s.cluster)
 	require.NoError(s.T(), err)
 	s.fleetTarget = fleetTarget
+	s.gitRepoNamespace = fleetGitRepoWorkspace(fleetTarget)
 }
 
 // TearDownSuite deliberately does not call session.Cleanup(): resources created in
@@ -71,14 +72,14 @@ func (s *FleetUpgradeTestSuite) TearDownSuite() {
 
 func (s *FleetUpgradeTestSuite) TestFleetPreUpgrade() {
 	logrus.Infof("pre-upgrade phase: creating SSH node on cluster %s", s.cluster.ID)
-	sshNode, err := ssh.CreateSSHNode(s.client, s.cluster.Name, s.cluster.ID)
+	sshNode, err := fleetSSHNode(s.client, s.cluster.ID)
 	require.NoError(s.T(), err)
 
 	knownHostKey, err := sshNode.ExecuteCommand(fmt.Sprintf("ssh-keyscan -H %s", sshNode.PublicIPAddress))
 	require.NoError(s.T(), err)
 
-	logrus.Infof("pre-upgrade phase: creating fleet SSH secret %s", fleetSSHSecretName)
-	_, err = actionsFleet.CreateFleetSSHSecret(s.client, sshNode.SSHKey, knownHostKey, fleetSSHSecretName)
+	logrus.Infof("pre-upgrade phase: creating fleet SSH secret %s in %s", fleetSSHSecretName, s.gitRepoNamespace)
+	_, err = actionsFleet.CreateFleetSSHSecret(s.client, sshNode.SSHKey, knownHostKey, fleetSSHSecretName, s.gitRepoNamespace)
 	require.NoError(s.T(), err)
 
 	logrus.Infof("pre-upgrade phase: cloning %s into ~/%s on the SSH node", fleet.ExampleRepo, fleetGitRepoDir)
@@ -89,12 +90,12 @@ func (s *FleetUpgradeTestSuite) TestFleetPreUpgrade() {
 	err = createFleetTargetNamespace(s.client, s.cluster.ID)
 	require.NoError(s.T(), err)
 
-	logrus.Infof("pre-upgrade phase: creating GitRepo %s targeting cluster %s", fleetGitRepoName, s.fleetTarget)
-	_, err = actionsFleet.CreateLocalFleetGitRepo(s.client, sshNode, fleetGitRepoName, fleetGitRepoDir, fleetTargetNamespace, s.fleetTarget, fleetSSHSecretName)
+	logrus.Infof("pre-upgrade phase: creating GitRepo %s/%s targeting cluster %s", s.gitRepoNamespace, fleetGitRepoName, s.fleetTarget)
+	_, err = actionsFleet.CreateLocalFleetGitRepo(s.client, sshNode, fleetGitRepoName, fleetGitRepoDir, fleetTargetNamespace, s.fleetTarget, fleetSSHSecretName, s.gitRepoNamespace)
 	require.NoError(s.T(), err)
 
-	gitRepoID := fmt.Sprintf("%s/%s", fleet.Namespace, fleetGitRepoName)
-	err = fleet.VerifyGitRepo(s.client, gitRepoID, s.cluster.ID, fmt.Sprintf("%s/%s", fleet.Namespace, s.fleetTarget))
+	gitRepoID := fmt.Sprintf("%s/%s", s.gitRepoNamespace, fleetGitRepoName)
+	err = verifyFleetGitRepoSynced(s.client, gitRepoID, s.cluster.ID, fmt.Sprintf("%s/%s", s.gitRepoNamespace, s.fleetTarget))
 	require.NoError(s.T(), err)
 
 	commit, err := gitRepoCommit(s.client, gitRepoID)
@@ -132,12 +133,12 @@ func (s *FleetUpgradeTestSuite) TestFleetPostUpgrade() {
 	require.NotEmpty(s.T(), preAgentVersion, "state ConfigMap is missing %s", fleetStateKeyAgentVersion)
 	require.NotEmpty(s.T(), preCommit, "state ConfigMap is missing %s", fleetStateKeyCommit)
 
-	gitRepoID := fmt.Sprintf("%s/%s", fleet.Namespace, fleetGitRepoName)
-	err = fleet.VerifyGitRepo(s.client, gitRepoID, s.cluster.ID, fmt.Sprintf("%s/%s", fleet.Namespace, s.fleetTarget))
+	gitRepoID := fmt.Sprintf("%s/%s", s.gitRepoNamespace, fleetGitRepoName)
+	err = verifyFleetGitRepoSynced(s.client, gitRepoID, s.cluster.ID, fmt.Sprintf("%s/%s", s.gitRepoNamespace, s.fleetTarget))
 	require.NoError(s.T(), err)
 	logrus.Infof("post-upgrade phase: GitRepo %s still in sync; driving a new commit through the reconcile loop", gitRepoID)
 
-	sshNode, err := ssh.CreateSSHNode(s.client, s.cluster.Name, s.cluster.ID)
+	sshNode, err := fleetSSHNode(s.client, s.cluster.ID)
 	require.NoError(s.T(), err)
 
 	err = actionsFleet.GitPushCommit(sshNode, fleetGitRepoDir)
@@ -149,7 +150,7 @@ func (s *FleetUpgradeTestSuite) TestFleetPostUpgrade() {
 	err = actionsFleet.VerifyRepoUpdate(s.client, gitRepoID)
 	require.NoError(s.T(), err)
 
-	err = fleet.VerifyGitRepo(s.client, gitRepoID, s.cluster.ID, fmt.Sprintf("%s/%s", fleet.Namespace, s.fleetTarget))
+	err = verifyFleetGitRepoSynced(s.client, gitRepoID, s.cluster.ID, fmt.Sprintf("%s/%s", s.gitRepoNamespace, s.fleetTarget))
 	require.NoError(s.T(), err)
 	logrus.Infof("post-upgrade phase: commit moved past the pre-upgrade SHA %s and resources redeployed downstream", preCommit)
 
