@@ -1080,20 +1080,37 @@ rancher_use_bundled_system_charts: true
                         ).trim()
                         def configYaml = readFile(file: "${env.TESTS_DIR}/cattle-config.yaml")
 
-                        echo "Dispatching chart-upgrade phase: GOTEST_TESTCASE ${TEST_PHASES.chart} (Qase run ${testRunID})"
-                        build job: params.INDIVIDUAL_JOB, parameters: [
-                            string(name: 'TIMEOUT', value: params.TEST_TIMEOUT),
-                            text(name: 'CONFIG', value: configYaml),
-                            string(name: 'REPO', value: params.TESTS_REPO_URL),
-                            string(name: 'BRANCH', value: params.TESTS_BRANCH),
-                            string(name: 'QASE_TEST_RUN_ID', value: testRunID),
-                            string(name: 'QASE_SCHEMA_PREFIX', value: params.QASE_SCHEMA_PREFIX),
-                            string(name: 'QASE_REPORTER_SCRIPT', value: params.QASE_REPORTER_SCRIPT),
-                            string(name: 'TEST_PACKAGE', value: params.TEST_PACKAGE),
-                            string(name: 'GOTEST_TESTCASE', value: TEST_PHASES.chart),
-                            string(name: 'TAGS', value: 'validation'),
-                            booleanParam(name: 'CAPTURE_IMAGES', value: false)
-                        ]
+                        // All-mode sequencing: the volume-heavy observability
+                        // chart upgrade runs BEFORE longhorn's. Longhorn's
+                        // upgrade live-upgrades every volume engine in the
+                        // cluster, and an observability rollout starting while
+                        // those engine upgrades are in flight can stall its
+                        // statefulsets on volume reattach for the full helm
+                        // deadline (build 52: zookeeper stuck in
+                        // ContainerCreating for 45 minutes, kafka crashlooping
+                        // on the unresolved headless service, everything
+                        // cascading from there).
+                        def chartSelectors = params.TEST_MODULE == 'all' ? [
+                            UPGRADE_TEST_MODULES.observability.chart,
+                            '-run "Test(Fleet|Longhorn|NeuVector)UpgradeTestSuite/Test(Fleet|Longhorn|NeuVector)ChartUpgrade"'
+                        ] : [TEST_PHASES.chart]
+
+                        chartSelectors.each { selector ->
+                            echo "Dispatching chart-upgrade phase: GOTEST_TESTCASE ${selector} (Qase run ${testRunID})"
+                            build job: params.INDIVIDUAL_JOB, parameters: [
+                                string(name: 'TIMEOUT', value: params.TEST_TIMEOUT),
+                                text(name: 'CONFIG', value: configYaml),
+                                string(name: 'REPO', value: params.TESTS_REPO_URL),
+                                string(name: 'BRANCH', value: params.TESTS_BRANCH),
+                                string(name: 'QASE_TEST_RUN_ID', value: testRunID),
+                                string(name: 'QASE_SCHEMA_PREFIX', value: params.QASE_SCHEMA_PREFIX),
+                                string(name: 'QASE_REPORTER_SCRIPT', value: params.QASE_REPORTER_SCRIPT),
+                                string(name: 'TEST_PACKAGE', value: params.TEST_PACKAGE),
+                                string(name: 'GOTEST_TESTCASE', value: selector),
+                                string(name: 'TAGS', value: 'validation'),
+                                booleanParam(name: 'CAPTURE_IMAGES', value: false)
+                            ]
+                        }
 
                         // Complete the shared qase test run
                         sh "./testrun --startRun=false"
